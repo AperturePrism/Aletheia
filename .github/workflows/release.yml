@@ -1,0 +1,238 @@
+# Aletheia Release —— tag 触发，多平台构建 + GitHub Release。
+#
+# 版本策略依据 docs/04-开发总纲 §5：
+#   · SemVer；`0.x` 期间 minor 可含破坏性变更，但接口契约文件必须同步更新
+#   · 每个迭代末打 tag：`v0.{迭代号}.0`
+#
+# 触发方式：推送形如 `v0.1.0` 的 tag。
+#
+#   git tag -a v0.1.0 -m "I0 仓库骨架"
+#   git push origin v0.1.0
+#
+# 发布内容：
+#   1. 三个平台的 alethd 与 aleth 二进制（Linux / macOS / Windows，amd64 + arm64）
+#   2. 内嵌 WebUI 的单二进制 —— 用户下载一个文件即可运行完整系统（docs/06 §8）
+#   3. checksums.txt（sha256）
+#   4. 从 CHANGELOG 提取的 Release Notes
+#
+# 为什么 Release Notes 从 CHANGELOG 提取而不是手写：
+#   docs/09 §10 第 8 项已要求每个迭代写 CHANGELOG 条目。
+#   手写 Release Notes 等于把同一事实写在第二个地方（docs/README §3 铁律：
+#   任何事实只写在一个地方），两者终将不一致。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 tag（如 v0.1.0）"
+        required: true
+
+permissions:
+  contents: write   # 创建 Release 与上传资产需要
+
+jobs:
+  # ==========================================================================
+  # 发布前门禁：不允许从未通过 CI 的提交打 tag。
+  #
+  # docs/09 R10：不得在未达门禁时进入下一阶段。
+  # docs/10 §8：检查项一旦写进 CI 门禁，就无法自欺。
+  #
+  # 做法：跑一遍 make gate（build/test/lint + Q10–Q14 + P3 + 交付物 + 治理护栏）。
+  # 任一门禁失败 → 不产出二进制，Release 不存在。
+  # ==========================================================================
+  gate:
+    name: pre-release gate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 需要完整历史：make gate 里的 check-iteration-docs 与治理护栏
+          # 会读 git 记录校验契约未被擅改（docs/09 R1）。
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        run: make env
+
+      - name: Extract version from tag
+        id: ver
+        run: |
+          # workflow_dispatch 手动触发时从 input 取；tag 推送时从 GITHUB_REF 取。
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            VERSION="${{ github.event.inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing: $VERSION"
+
+          # 校验 tag 形如 v0.N.0（docs/04 §5）。
+          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '$VERSION' 不符合 SemVer（docs/04 §5 要求 v0.{迭代号}.0）"
+            exit 1
+          fi
+
+      - name: Pre-release gate (make gate)
+        run: make gate
+
+  # ==========================================================================
+  # 多平台构建
+  # ==========================================================================
+  build:
+    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: gate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          # Linux amd64 —— 服务端主要形态
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+          # Linux arm64 —— 树莓派 / ARM 服务器
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+          # macOS amd64（Intel）
+          - goos: darwin
+            goarch: amd64
+            runner: macos-latest
+          # macOS arm64（Apple Silicon）—— 当前 Mac 主流
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+          # Windows amd64 —— 本仓库开发机所在平台
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
+          # Windows arm64
+          - goos: windows
+            goarch: arm64
+            runner: windows-latest
+      fail-fast: false   # 一个平台失败不取消其余，便于看全貌
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build WebUI
+        run: |
+          npm install
+          make web-build
+
+      - name: Build binaries for ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          bash scripts/embed-web.sh
+          mkdir -p dist
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          go build -ldflags "-s -w -X main.version=${VERSION}" \
+            -o "dist/alethd-${VERSION}-${GOOS}-${GOARCH}${EXT}" ./cmd/alethd
+          go build -ldflags "-s -w -X main.version=${VERSION}" \
+            -o "dist/aleth-${VERSION}-${GOOS}-${GOARCH}${EXT}" ./cmd/aleth
+          ls -lh dist/
+
+      - name: Smoke test the built binary
+        # 只在同架构 native 平台上跑 —— 交叉编译的产物无法在本机执行。
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          bash scripts/smoke-embed.sh "dist/alethd-${{ needs.gate.outputs.version }}-linux-amd64"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention-days: 7
+
+  # ==========================================================================
+  # 汇总校验和并发布 Release
+  # ==========================================================================
+  release:
+    name: publish release
+    needs: [gate, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          # 按文件名排序，保证 checksums.txt 内容可复现（docs/04 §1 P-5）。
+          sha256sum * | sort -k2 > ../checksums.txt
+          echo "--- checksums.txt ---"
+          cat ../checksums.txt
+          cp ../checksums.txt .
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          # 从 docs/CHANGELOG.md 提取本次 tag 对应的段落。
+          # 不手写 Release Notes —— docs/09 §10 第 8 项已要求每迭代写
+          # CHANGELOG；docs/README §3 铁律：任何事实只写在一个地方。
+          VERSION="${{ needs.gate.outputs.version }}"
+
+          if python3 scripts/extract-release-notes.py "$VERSION" docs/CHANGELOG.md release-notes.md; then
+            echo "notes-extracted=true" >> "$GITHUB_OUTPUT"
+            echo "--- extracted notes (first 20 lines) ---"
+            head -20 release-notes.md
+          else
+            rc=$?
+            echo "::error::Release Notes 提取失败（exit $rc）。"
+            echo "::error::docs/09 §10 第 8 项要求每个迭代写 CHANGELOG 条目。"
+            echo "::error::不做空 Notes 发布 —— 那会带着一份空白说明上线而没人发现。"
+            exit $rc
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.gate.outputs.version }}
+          name: Aletheia ${{ needs.gate.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            artifacts/*
+          draft: false
+          prerelease: ${{ contains(needs.gate.outputs.version, '-') }}
+          # -alpha/-beta/-rc 后缀自动标记为 prerelease。

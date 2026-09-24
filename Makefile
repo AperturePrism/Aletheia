@@ -58,6 +58,11 @@ ALETH_BIN  := bin/aleth
 # 会被算进本模块。理由详见 go.mod 的"Go 模块边界"段。
 GO_PKGS := ./cmd/... ./core/...
 
+# pytest 附加参数。默认 -q（安静模式）。
+# 用法：make test-python PYTEST_ARGS="tests/test_security_scan.py -q"
+# CI 用它跑单个文件，本地跑全量时无需指定。
+PYTEST_ARGS ?= -q
+
 # 版本号：由 git describe 生成，失败时回退 dev。
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X main.version=$(VERSION)
@@ -76,7 +81,15 @@ help: ## 显示本帮助（默认目标）
 # ============================================================================
 
 .PHONY: env
-env: ## 安装全部依赖（Go / npm / uv）
+env: env-web env-root ## 安装全部依赖（Go / npm / uv）
+
+.PHONY: env-web
+env-web: ## 安装 web/ 的前端依赖
+	@echo "== web/ npm install =="
+	cd $(WEB_DIR) && $(NPM) install
+
+.PHONY: env-root
+env-root: ## 安装根 npm 依赖（buf）+ Go modules + uv venv
 	@echo "== Go modules =="
 	$(GO) mod download
 	@echo "== buf（Protobuf 工具链）=="
@@ -158,7 +171,7 @@ endif
 
 .PHONY: test-python
 test-python: ## Python 单元测试
-	$(PYTEST) -q
+	$(PYTEST) $(PYTEST_ARGS)
 
 .PHONY: test-contract
 test-contract: ## Q10：契约一致性（Go/Python/TS 三侧 vs docs/05）

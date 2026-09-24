@@ -164,8 +164,10 @@ jobs:
       # 缺少这一条，一个永真的扫描脚本会让所有"门禁已通过"的结论失去依据。
       - name: Mutation-verify the scanner
         run: |
-          make env >/dev/null 2>&1 || true
-          .venv/bin/python -m pytest tests/test_security_scan.py -q
+          make env
+          # 不用写死的 .venv/bin/python —— Windows 上是 .venv/Scripts/python.exe。
+          # 交给 Makefile 的 PYTHON 变量按平台选择（它在 CI 的 ubuntu 上解析为正确路径）。
+          make test-python ARGS="tests/test_security_scan.py -q"
 
       - name: Frontend credential check (Q12)
         run: bash scripts/check-frontend-credentials.sh
