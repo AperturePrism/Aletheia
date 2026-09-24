@@ -1,11 +1,16 @@
 """CI 工作流的结构完整性测试。
 
-**为什么值得测**：CI 首跑 + 二跑共三次失败，全部源于"某个 job 漏了某步 setup"
+**为什么值得测**：CI 首跑与二跑共三次失败，全部源于"某个 job 漏了某步 setup"
 或"inline 写了已经过时的做法"。这类问题在本地永远发现不了 ——
 本地依赖早已装好，只有干净环境会暴露。
 
 把"每个 job 都用了统一 setup"变成断言后，新增 job 时漏 setup 会立刻红灯，
 而不是等下一次 push 到 GitHub 才失败。
+
+Release 首跑（v0.1.0）又暴露一类：**windows runner 默认 shell 是 PowerShell**，
+bash 语法的 step 不声明 `shell: bash` 就 ParserError ——
+而 Linux/macOS runner 默认就是 bash，所以只有 Windows 挂。
+这类平台差异同样只有真跑才暴露，因此也有对应断言。
 
 对应文档：
     docs/09 R10（不得在未达门禁时进入下一阶段）
@@ -156,4 +161,56 @@ def test_release_gate_runs_before_build() -> None:
         needs = [needs]
     assert needs and "gate" in needs, (
         f"release 的 build job 必须依赖 gate，实际：{build.get('needs')}"
+    )
+
+
+def test_windows_steps_declare_bash_shell() -> None:
+    """含 windows runner 的 job，其 bash 语法的 step 必须显式 shell: bash。
+
+    v0.1.0 Release 首跑的实测失败：ParserError 指向一个 .ps1 文件。
+    根因：GitHub 的 windows-latest 默认 shell 是 PowerShell，
+    而该 step 用的是 bash 语法（行尾续行、POSIX test 的中括号、ls -lh）。
+    Linux/macOS runner 默认就是 bash，所以**只有 Windows 挂** ——
+    这类平台差异在本地与 Linux CI 上都发现不了。
+
+    判定"用了 bash 语法"的方式：找 bash 特有构造。这不如真解析可靠，
+    但对 workflow 这类配置文件够用，且比"等 Windows 挂了再说"早得多。
+    """
+    rel = _load(WORKFLOW_DIR / "release.yml")
+    offenders: list[str] = []
+
+    # bash 特有构造。命中任一并缺 shell: bash 即视为隐患。
+    #
+    # 注：不把 "反斜杠续行" 列进去 —— YAML 解析后 block scalar 里的续行
+    # 已变成真实换行，那个字面量匹配不到。用 POSIX test / coreutils
+    # 这些能稳定命中的标记，够了。
+    bash_markers = (
+        "if [ ",  # POSIX test
+        'EXT="',  # bash 变量赋值风格
+        "ls -",  # coreutils
+        "$((",  # bash 算术
+        "|| true",  # bash 惯用法
+    )
+
+    for job_name, job in (rel.get("jobs") or {}).items():
+        runs_on = str(job.get("runs-on", ""))
+        # 只检查会落到 Windows 的 job。
+        if "windows" not in runs_on and "matrix.runner" not in runs_on:
+            continue
+
+        for step in job.get("steps") or []:
+            if "run" not in step:
+                continue
+            run_text = str(step["run"])
+            if not any(m in run_text for m in bash_markers):
+                continue
+            if step.get("shell") != "bash":
+                step_name = step.get("name", "(unnamed)")
+                offenders.append(f"job '{job_name}' step '{step_name}'")
+
+    assert not offenders, (
+        "以下 step 用了 bash 语法但未声明 shell: bash，在 windows runner 上会 "
+        "ParserError（默认 shell 是 PowerShell）：\n  "
+        + "\n  ".join(offenders)
+        + "\n  修复：加 shell: bash"
     )

@@ -128,10 +128,19 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Build WebUI
+        # shell: bash 显式声明 —— 本 job 含 windows runner，其默认 shell 是
+        # PowerShell。当前这行恰好是单条命令所以没炸，但不声明就是等着炸。
+        shell: bash
         # make web-build 自带 env-web 依赖（会 npm install web/ 的依赖）。
         run: make web-build
 
       - name: Build binaries for ${{ matrix.goos }}/${{ matrix.goarch }}
+        # 必须显式指定 shell: bash。
+        # GitHub 的 windows-latest 默认 shell 是 PowerShell（.ps1），
+        # 本步骤的 bash 语法（`\` 续行、`[ ... ]`、`ls -lh`）在 PS 下直接
+        # ParserError。Linux/macOS runner 默认就是 bash，所以只有 Windows 挂 ——
+        # 这类平台差异本地与 Linux CI 都发现不了。
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -150,6 +159,7 @@ jobs:
       - name: Smoke test the built binary
         # 只在同架构 native 平台上跑 —— 交叉编译的产物无法在本机执行。
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        shell: bash
         run: |
           bash scripts/smoke-embed.sh "dist/alethd-${{ needs.gate.outputs.version }}-linux-amd64"
 
