@@ -28,7 +28,7 @@
 - **CI 流水线**：`.github/workflows/ci.yml`，6 个 job 覆盖 Q1/Q7/Q10–Q14，并在末尾明确列出尚未自动化的门禁（Q3/Q4/Q5/Q6/Q8/Q9）及补齐迭代 —— 不做假通过。
 - **安全静态检测**：`scripts/check-no-bypass.sh`，覆盖 R4/R5/R6/P-4/R7/R8。
 - **门禁脚本**：`scripts/gen-proto.sh`、`check-gen-fresh.sh`（Q14）、`check-frontend-credentials.sh`（Q12）、`lint.sh`（Q7）、`embed-web.sh`、`smoke-embed.sh`（Q11）。
-- **测试**：22 个 Python 测试（契约一致性 10 + 红线扫描变异验证 10 + ROE Schema 2）+ Go 测试（config / log / checkpoint）。
+- **测试**：38 个 Python 测试（契约一致性 10 + 门禁变异验证 10 + ROE Schema 2 + Release Notes 9 + CI 工作流 7）+ Go 测试（config / log / checkpoint）。
 - `examples/roe.example.yaml` 授权凭证示例（已通过 `roe.schema.json` 校验）。
 
 **Added（自检机制）**
@@ -45,9 +45,52 @@
   3. `scripts/check-no-bypass.sh` 的 R5 规则只覆盖 Python f-string，漏掉 Go 的 `fmt.Sprintf`（双语言项目的单侧漏检）
 
 **Known gaps（I0 未达成项，按 `09` §10 第 4 项如实记录）**
-- CI 工作流未实际执行（需 push 到 GitHub 后验证 6 个 job）—— DoD② 未达成
+- ~~CI 工作流未实际执行~~ —— **已解决**，见下方「CI/CD 落地」节（6 job 全绿）
 - Q3/Q4/Q5 三条红线无 CI 覆盖（需真实靶场，按 `04` 时间表在 I2/I3 补齐）
 - Go race 检测在无 C 编译器的开发机上不可用（`GO_TEST_RACE=1` 显式启用；CI 的 ubuntu-latest 会自动启用）
+
+### CI/CD 落地（2026-09-24，仓库已建 + 首跑七连败复盘）
+
+仓库：`github.com/AperturePrism/Aletheia`。I0 已 push，**CI 6 job 全绿**
+（Q1 / Q2 / Q10+Q14 / Q7 / Q11 / security static）。DoD②「CI 干净环境从零构建」达成。
+
+**过程：CI 连败 7 次才全绿**，7 次全部是本地验证覆盖不到的问题
+（本地 `.venv` 一直存在、PATH 上的 `python` 恰好有 pytest、`web/node_modules` 早已装好）。
+
+**Changed**
+- `.github/actions/setup`（composite action）：工具链 setup 收敛到一处定义。
+  逐 job 手写 setup 的坏处是新增 job 时会漏 —— 这正是首跑两次失败的原因
+- `Makefile` `web-build` 增加 `env-web` 依赖：把"装 web 依赖"从**记得做的事**
+  变成**结构性前提**。已用"移走 web/node_modules 后 make build 自动重装"验证
+- `Makefile` 新增 `PYTEST_ARGS` 变量（CI 跑单文件用）
+- `Makefile` 新增 `check-governance-guard` / `check-iteration-docs` 目标并接入 `gate`
+- 根 `README.md`：GitHub 占位内容替换为真实项目说明
+
+**Added**
+- `.github/workflows/release.yml`：tag 触发（`v0.1.0` 形式，对应 `04` §5）。
+  gate 先行（不过门禁不产出二进制，R10）→ 6 平台矩阵构建 → sha256 校验和
+  → 从 CHANGELOG 提取 Release Notes → 发布。`-alpha/-rc` 后缀自动标 prerelease
+- `scripts/extract-release-notes.py` + 9 项测试：Release Notes 从 CHANGELOG 提取
+  而非手写（`09` §10 第 8 项 + `README` §3「任何事实只写在一个地方」）。
+  **找不到段落时 exit 2 而非输出空内容** —— 空 Notes 的 Release 比失败的更糟
+- `scripts/py.sh`：Python 解释器解析移到 recipe 内（规避 Make parse-time 陷阱），
+  逐个候选验证 `import pytest`，venv 缺失时用 uv 自动创建
+- `tests/test_ci_workflows.py`（7 项）：断言每个 job 都调统一 setup、
+  workflow 不含已废弃写法、CI 显式记录未自动化的门禁。
+  **已变异验证**：删掉某 job 的 setup 步骤后测试 FAIL
+
+**Fixed**
+- `pyproject.toml` exclude `docs/**/*.md`：ruff 会把 md 的 ```python 代码块
+  当源文件格式化，涉及 25 个冻结文档
+
+**三条方法论教训（比修复本身重要）**
+1. **本地全绿 ≠ CI 能跑。** 干净环境是唯一诚实的验证
+2. **"更健壮的回退"可能比明确的失败更危险。** 把显式 127 换成隐密的
+   `No module named pytest`，后者会被误读成"测试在跑但没过"
+3. **`$(shell)` 的结果不能依赖任何 recipe 的副作用。** 这是第 7 次全挂的根因
+
+---
+
 
 ### 指令文档冲突裁决（2026-09-24，按 C + D 处置）
 
