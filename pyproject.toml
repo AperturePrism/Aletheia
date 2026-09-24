@@ -1,0 +1,163 @@
+# ============================================================================
+# Aletheia —— Python 侧配置（L1–L4 + Agent）
+#
+# 对应 docs/02 §7.1 的技术选型：
+#   L1–L3 心智地图 / 光圈 / 焦平面 → Python（核心逻辑）
+#   L2 上层 Agent / 编排           → Python
+#
+# 本文件位于仓库根（不是 agents/ 内）：它配置的 ruff / mypy / pytest
+# 覆盖 tests/ 与 agents/src/ 两处。放在根目录避免"配置找半天"。
+#
+# I0 的零依赖是有意的：运行时依赖在对应迭代按 docs/09 §5 #3
+# （用途 / 许可证 / 维护活跃度 / 替代方案）逐条说明后加入。
+# ============================================================================
+
+[project]
+name = "aletheia"
+version = "0.1.0"
+description = "Aletheia —— 以「可证明性」为第一原则的自主渗透测试系统（L1–L4 Python 侧）"
+requires-python = ">=3.12"
+# I0：无运行时依赖。
+dependencies = []
+
+# 开发与测试工具链。
+# 拆成 optional-dependencies 与 dependency-groups 两份是有意的：
+# 前者给贡献者（uv sync --extra dev），后者给 CI（uv sync --group dev），
+# 用途不同但集合一致 —— 不一致时 CI 会发现，那正是我们想要的。
+[dependency-groups]
+dev = [
+    # pytest —— 测试框架。MIT，Python 事实标准。
+    "pytest>=8.3,<9",
+    # pytest-cov —— 覆盖率。对应 docs/04 §6 Q2（解析器覆盖率 ≥90%）。
+    "pytest-cov>=6.0,<8",
+    # ruff —— lint + format。MIT，Rust 实现，快到可以无脑全量跑。
+    # 替代方案 flake8+black+isort 三件套（维护面更大，本项目只有少量志愿者）。
+    "ruff>=0.8,<1",
+    # grpcio-tools —— Protobuf 编译，生成 Python 侧契约代码。
+    # 与 Go 侧 buf 生成物同源于 proto/aleth/v1/aletheia.proto（05 §0 C1）。
+    # 替代方案：纯手写 protobuf 序列化（不采纳 —— 那等于绕开契约）。
+    "grpcio-tools>=1.68,<2",
+]
+
+[tool.uv]
+# 本仓库不是可分发的 Python 包（源码即配置，docs/ 是唯一真源）。
+package = false
+
+# ---------------------------------------------------------------------------
+# Ruff —— lint + format
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["agents/src", "tests"]
+
+# 生成代码不参与 lint。
+# agents/src/aletheia/gen/ 由 `make proto`（grpcio-tools）从
+# proto/aleth/v1/aletheia.proto 生成，不是手写代码：
+#   · 它的命名遵循 Protobuf 惯例（PascalCase 方法名），不符合 PEP8
+#   · 对它做 lint 会让 CI 在"没有人工改动"的情况下失败
+# 要控的是契约本身（proto/），不是它的投影。
+# Q14 的一致性由 tests/test_contract_consistency.py 保证。
+exclude = [
+    "agents/src/aletheia/gen",
+    ".venv",
+    "node_modules",
+    "web/dist",
+    "bin",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "B",         # flake8-bugbear
+    "C4",        # flake8-comprehensions
+    "SIM",       # flake8-simplify
+    "RUF",       # ruff 专属
+    "S",         # flake8-bandit —— 安全问题（本项目重点）
+    "PTH",       # flake8-use-pathlib
+    "TID",       # flake8-tidy-imports
+    "ASYNC",     # flake8-async
+    "FA",        # flake8-future-annotations
+    "RET",       # flake8-return
+    "ARG",       # flake8-unused-arguments
+    "BLE",       # flake8-blind-except —— 禁止裸 except（P-4：异常必须上抛）
+]
+
+ignore = [
+    # 本项目注释与文档字符串含大量中文，行宽由 formatter 处理，
+    # 不作为 lint 错误（100 字符已足够中文场景）。
+    "E501",
+
+    # RUF001/RUF002/RUF003："歧义字符"。
+    # 这三个规则假设源码是 ASCII 的，会把中文全角标点（：，（））、
+    # 破折号（——）判为"应替换成 ASCII 形式"。
+    # 本项目的代码注释与文档同为中文（docs/ 是唯一真源，见 docs/09 §9 的
+    # 裁决顺序："文档与代码冲突时，以文档为准"）。按 ASCII 改写注释会让
+    # 代码与文档脱节，违背可读性这一更重要的目标。
+    # 因此整类禁用，而不是在每个中文注释上加 noqa。
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试代码允许断言、子进程、临时路径。
+"tests/**/*.py" = ["S101", "S105", "S106", "S108", "ARG001", "ARG002"]
+"agents/**/tests/**/*.py" = ["S101", "S105", "S106", "S108", "ARG001", "ARG002"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aletheia"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests", "agents/tests"]
+pythonpath = ["agents/src"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    # 红线测试（docs/04 §6 Q3/Q4/Q5）—— 不可抽样、不可跳过。
+    "redline: 红线门禁测试（Q3/Q4/Q5），禁止抽样与跳过",
+    # 长时稳定性测试 —— 默认不跑，需显式 -m stability。
+    "stability: 长时稳定性测试（24h/143h），默认跳过",
+    # 确定性测试（P-5）—— 相同输入必须产出字节级一致的结果。
+    "determinism: 确定性 / 字节级可复现测试",
+]
+
+# filterwarnings = ["error"]
+# 暂不开启：I0 尚未有任何会告警的代码路径。开启的时机见 10 §3 P5
+# —— 一旦有了解析器（I1）就应该加上，让 DeprecationWarning 暴露出来。
+
+# ---------------------------------------------------------------------------
+# coverage —— Q2 解析器覆盖率 ≥90%
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+source = ["aletheia"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+    "@overload",
+]

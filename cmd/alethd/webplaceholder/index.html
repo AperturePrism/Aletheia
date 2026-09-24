@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aletheia · WebUI 未构建</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 15px/1.6 ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+        max-width: 44rem; margin: 4rem auto; padding: 0 1.5rem;
+      }
+      h1 { font-size: 1.3rem; margin: 0 0 1rem; }
+      code {
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        background: rgba(127,127,127,.15); padding: .15em .4em; border-radius: 4px;
+      }
+      .note { border-left: 3px solid #c98a1a; padding-left: 1rem; margin: 1.2rem 0; }
+    </style>
+  </head>
+  <body>
+    <h1>Aletheia · WebUI 尚未构建</h1>
+    <p>
+      这是占位页面。真正的 WebUI（React + TypeScript + Vite）构建产物会通过
+      <code>go:embed</code> 嵌入 <code>alethd</code> 二进制 ——
+      用户只需一个文件即可运行完整系统（含 UI）。
+    </p>
+    <p>构建命令：</p>
+    <p><code>make build</code></p>
+    <div class="note">
+      <p>
+        依据 <code>docs/04-开发总纲</code> §I0 DoD：
+        <strong>WebUI 产物可嵌入单一二进制并正常服务</strong>。
+      </p>
+      <p>
+        看到本页说明 gRPC/HTTP 服务已可启动，只是前端资源尚未构建。
+        它替代了一个空白页 —— 空白页会让使用者无法判断"UI 坏了"还是"UI 没建"。
+      </p>
+    </div>
+    <p>
+      本页不含任何业务逻辑。三个核心视图（证据链 / 光圈上下文 / 冲突矩阵）见
+      <code>docs/06</code> §6.1，分别在 I2 / I5 / I8 迭代交付 ——
+      它们是本项目的差异化载体，不可省略（<code>docs/09</code> R9）。
+    </p>
+  </body>
+</html>

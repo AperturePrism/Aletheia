@@ -1,0 +1,49 @@
+# buf 代码生成配置 —— Aletheia
+#
+# 一次生成三份产物，全部来自同一份 proto/ 契约（05 §0 C1：契约定死，实现可变）。
+#
+# 1. Go 消息类型 → core/api/alethv1/aleth/v1/    供 alethd / aleth 使用
+# 2. Go gRPC 服务 →（同目录）                     供服务端接线
+# 3. TypeScript   → web/src/gen/                 供 WebUI 使用
+#
+# Q14 门禁：前端 TS 类型由 Protobuf 生成，禁止手工维护重复类型。
+# 生成产物必须入库并提交，使 CI 能校验"生成物与契约一致"：
+# 若开发者手改了生成物而未改契约，`make proto` 会产生 diff，CI 将其拦下。
+version: v2
+
+plugins:
+  # ---- Go：消息类型 ----
+  # google.golang.org/protobuf（Apache-2.0，官方）。
+  # 版本在下方 pinned；升级须在 PR 中说明（09 §5 #3）。
+  - remote: buf.build/protocolbuffers/go:v1.36.10
+    out: core/api
+    opt: paths=source_relative
+
+  # ---- Go：gRPC 服务骨架 ----
+  # grpc/go（Apache-2.0，grpc-go 官方）。
+  # require_unimplemented_servers=true：新增 RPC 时未实现该方法的服务端
+  # 会编译失败而非静默返回 nil —— 避免"接口漏实现但编译通过"。
+  - remote: buf.build/grpc/go:v1.5.1
+    out: core/api
+    opt:
+      - paths=source_relative
+      - require_unimplemented_servers=true
+
+  # ---- TypeScript：WebUI 类型唯一来源 ----
+  # community/stephenh-ts-proto（MIT，ts-proto 作者官方维护的 remote plugin）。
+  # 引入理由（09 §5 #3）：用途=生成 WebUI 类型（Q14 门禁的唯一合规路径）；
+  #   许可证=MIT；维护活跃度=ts-proto 作者本人；替代方案=connect-es/protoc-gen-es
+  #   （功能重叠，若后续切 Connect 协议可平替）。
+  # 版本必须 pinned —— 不 pin 会用最新版，契约生成物会随上游静默变化。
+  # outputServices=nice-grpc：生成 *ServiceClient / *ServiceImplementation
+  #   接口（而非描述符常量）。客户端实例化集中在 web/src/lib/api.ts
+  #   这一单一入口，便于统一加脱敏与访问令牌注入。
+  - remote: buf.build/community/stephenh-ts-proto:v2.12.4
+    out: web/src/gen
+    opt:
+      - outputServices=nice-grpc
+      - exportCommonSymbols=false
+      - useOptionals=all
+
+# 不生成 grpc-gateway：HTTP/JSON 调试通道由 core/api 的薄映射层提供，
+# 避免引入额外生成面与额外依赖。

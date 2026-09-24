@@ -1,0 +1,67 @@
+# ---- 构建产物 ----
+bin/
+dist/
+web/dist/
+cover.out
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.o
+*.a
+
+# ---- 嵌入的 WebUI 产物 ----
+# cmd/alethd/webdist/ 由 make go-build 从 web/dist 复制而来，是构建产物。
+# 但仓库中必须保留一个占位 index.html，否则 go:embed 没有文件可嵌、
+# 未执行 make web-build 时连编译都过不去。
+# 因此这里只忽略除占位文件以外的内容。
+cmd/alethd/webdist/*
+!cmd/alethd/webdist/index.html
+
+# ---- 依赖 ----
+node_modules/
+web/node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# ---- 构建缓存 ----
+# tsc -b 生成的增量编译缓存。它是构建产物，且内容含绝对路径，
+# 不同机器上不一致（会造成无意义的 diff 噪音）。
+*.tsbuildinfo
+
+# ---- 本地数据（含真实目标信息，绝不可提交）----
+# docs/09 §8.3：提交中不得包含真实目标信息与真实凭据。
+data/
+*.db
+*.db-wal
+*.db-shm
+logs/
+*.log
+
+# ---- 本地配置（可能含授权凭证真实内容）----
+# 08 §2：授权凭证的 document_path 指向原件"不进日志、不进上下文、不上传"。
+# roe.yaml 同理：本地凭证文件不应入库，仓库中只放示例（见 examples/）。
+alethd.yaml
+roe.yaml
+*.local.yaml
+
+# ---- 编辑器 / OS ----
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- 临时 ----
+tmp/
+*.tmp

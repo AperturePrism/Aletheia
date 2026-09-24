@@ -1,0 +1,59 @@
+# buf 模块配置 —— Aletheia 接口契约
+#
+# 本文件与 proto/ 目录共同构成 05-接口契约与数据模型.md 的机器可读形式。
+# 契约已冻结（05 状态说明）：任何变更须走 `contract:` PR + 双人 review
+# （其中一人须为 M4 反幻觉负责人）。see docs/09 §R1。
+#
+# buf breaking 用本配置定义的模块名作为基准判别破坏性变更：
+#   buf breaking --against '.git#subdir=proto,ref=HEAD'
+version: v1
+
+# 模块名。契约版本由包名 aleth.v1 承载（05 §0 C4：破坏性变更升 v2，
+# 旧版本保留至少一个 minor 周期）。本模块名升级路径：aleth → alethv2。
+name: buf.build/apertureprism/aleth
+
+# proto/ 下全部 .proto 文件都在本模块内。
+# deps 为空：aletheia.proto 只导入 google/protobuf/timestamp.proto（标准
+# well-known types），由 buf 内置提供，无需声明外部模块依赖。
+deps: []
+
+# ---------------------------------------------------------------------------
+# Lint 规则配置
+#
+# 以下四条命名规则被禁用（重要，不是疏忽）：
+#
+#   ENUM_VALUE_PREFIX / ENUM_ZERO_VALUE_SUFFIX
+#     05 §1.3、§6.3 逐字使用不带前缀的枚举值名：
+#       OK / SCOPE_VIOLATION / BUDGET_EXCEEDED / EVIDENCE_INVALID / ...
+#       NETWORK / TOOL_PARAM / POST_DNS
+#
+#   RPC_REQUEST_STANDARD_NAME / RPC_RESPONSE_STANDARD_NAME /
+#   RPC_REQUEST_RESPONSE_UNIQUE
+#     05 的 RPC 消息名逐字为：
+#       Execute(ToolRequest) returns (EvidenceSpectrum)
+#       ValidateAssertion(ValidateAssertionRequest) returns (ValidateAssertionResult)
+#       Check(ScopeCheckRequest) returns (ScopeCheckResult)
+#       ...
+#     这些名字本身就是契约的一部分（调用方按此编写），改成
+#     "ValidateAssertionResponse" 之类是修改冻结契约。
+#
+# 依据 docs/09 §9 的优先级裁决：契约（第 1 位）高于本文件的风格规则。
+# 让生成代码迁就 lint 惯例 = 擅自改契约 = 10 §3 P1「契约漂移」，严重度 P0。
+# 因此显式禁用这四条规则，proto 原文一字不动。
+#
+# 禁用范围仅限这四条命名规则。buf 的其余静态检查全部保持开启
+# （字段/文件/消息命名、注释格式、保留字段、import 路径等）。
+# ---------------------------------------------------------------------------
+lint:
+  use:
+    - STANDARD
+  except:
+    - ENUM_VALUE_PREFIX
+    - ENUM_ZERO_VALUE_SUFFIX
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
+
+breaking:
+  use:
+    - FILE

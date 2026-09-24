@@ -1,0 +1,22 @@
+{
+  "name": "AperturePrism/aleth",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aletheia 开发工具链（Protobuf 契约生成）。业务依赖见 web/package.json 与 core/go.mod。",
+  "license": "Apache-2.0",
+  "scripts": {
+    "proto:gen": "make proto"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "//devDependencies": {
+    "@bufbuild/buf": "Apache-2.0，Buf 官方 CLI，活跃维护。自带 Protobuf 编译器，同时产出 Go 与 TypeScript 代码；额外提供 buf lint（喂给 Q7 lint 门禁）与 buf breaking（契约破坏性变更检测，支撑 R1 的 contract: PR 流程）。引入理由见 09 §5 #3：用途=生成门禁与 lint、许可证=Apache-2.0、维护=Buf 官方活跃、替代方案=系统级 protoc + protoc-gen-go + protoc-gen-go-grpc + ts-proto 四件套（更重且不可复现）。"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.73.0"
+  },
+  "allowScripts": {
+    "@bufbuild/buf@1.73.0": true
+  }
+}

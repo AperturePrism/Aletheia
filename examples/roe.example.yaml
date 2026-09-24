@@ -1,0 +1,99 @@
+# 授权凭证示例（ROE）
+#
+# 本文件是**示例**，不是可用凭证。
+#
+# 用法：
+#   1. 复制到仓库外（或任意不入库的位置）：cp examples/roe.example.yaml roe.yaml
+#   2. 按实际授权修改 targets / authorization
+#   3. aleth daemon start --authorization roe.yaml
+#
+# 为什么 roe.yaml 不入库（.gitignore 中已排除）：
+#   docs/09 §8.3 —— 提交中不得包含真实目标信息与真实凭据。
+#   docs/08 §2 —— document_path 指向的原件不进日志、不进上下文、不上传。
+#   授权凭证描述的是"我们被授权攻击什么"，它本身就是敏感信息。
+
+version: 1
+
+# ---- 授权凭证（docs/08 §2）----
+authorization:
+  # 授权方名称（必填）
+  granted_by: "YOUR-COMPANY-NAME"
+
+  # 被授权方（必填）
+  granted_to: "AperturePrism 团队 / YOUR-NAME"
+
+  # 授权方安全联系人，用于事件通知（必填，格式 email）
+  contact: "security@your-company.example"
+
+  # 工单号与授权书哈希：至少提供一个。
+  # document_hash 必须匹配 ^sha256:[a-f0-9]{64}$ ——
+  # 下面的值是按模式构造的假值（64 个 0），实际使用时替换为真实哈希。
+  ticket_id: "SEC-YYYY-MM-DD-NNN"
+  document_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+  # 原件路径：仅本地使用，不写入日志、不进入模型上下文、不上传
+  # document_path: "./授权书.pdf"
+
+  # 有效期（必填）。跨度上限 90 天，超长授权需在 PR 中说明理由。
+  valid_from: "2026-01-01T00:00:00+08:00"
+  valid_until: "2026-03-31T00:00:00+08:00"
+
+# ---- 目标范围（docs/08 §3）----
+#
+# 匹配语义（优先级从高到低）：
+#   1. exclude 命中 → 拒绝（排除项永远优先于包含项）
+#   2. include 命中 → 进入后续检查（动作/时间/速率）
+#   3. 均未命中   → 拒绝（默认拒绝，不是默认放行）
+targets:
+  include:
+    # 三种形式互斥：cidr / host / url_prefix 只能出现一个
+    - cidr: "10.40.23.0/24"
+    - host: "app.example.com"
+      ports: [80, 443, 8080]        # 可选：省略表示全部端口
+    - url_prefix: "https://api.example.com/v2/"
+
+  exclude:
+    # 明确排除：生产数据库段、支付系统
+    - cidr: "10.40.23.128/25"
+    - host: "pay.example.com"
+    - url_prefix: "https://app.example.com/admin/billing"
+
+# ---- 交战规则（docs/08 §4）----
+actions:
+  # allow 是白名单：未列出的动作默认禁止
+  allow:
+    - recon            # 信息收集
+    - scan             # 漏洞扫描
+    - fuzz             # 参数/路径模糊测试
+    - exploit          # 漏洞利用（获得访问权限）
+    - post_exploit     # 后渗透（横向、提权、凭据收集）
+    - enumerate        # 枚举
+
+  # deny 是显式声明：用于增强审计可读性。
+  # 注意：dos 与 destructive 由 Scope Kernel 硬编码保护，
+  # 即使写进 allow 也不可执行。
+  deny:
+    - dos
+    - destructive
+    - ransomware_sim
+    - social_engineering
+    - physical
+    - supply_chain
+    - data_exfiltration  # 数据外带（读取即记录，不外传）
+
+  limits:
+    max_requests_per_second: 10        # 单目标速率上限
+    max_concurrent_tasks: 3
+    max_depth_hops: 3                  # 内网横向最大跳数
+    forbidden_payloads:
+      - destructive
+      - persistent_backdoor            # 持久化后门需显式授权才允许
+    allowed_hours: "09:00-18:00 Asia/Shanghai"
+    allowed_days: [MO, TU, WE, TH, FR]
+
+# ---- 数据处理要求（docs/08 §6.3）----
+data_handling:
+  pii_handling: "mask"                # mask | allow
+  retention_days: 90
+  no_external_transmission: true       # 为 true 时须配合本地模型运行
+  evidence_export_allowed: ["client"]

@@ -1,0 +1,1188 @@
+// Aletheia 接口契约 —— Protobuf 定义
+//
+// 本文件是 docs/05-接口契约与数据模型.md 的机器可读形式。
+//
+// 契约管理原则（05 §0）：
+//   C1 契约定死，实现可变。双语言（Go/Python）切换、模块重写均不得改动本文件定义的结构与语义。
+//   C2 失败必须显式。所有接口的失败语义是 fail-closed —— 不确定 = 拒绝。
+//   C3 证据优先。任何产出"发现"的接口，其返回结构必须能反向追溯到 EvidenceEntry。
+//   C4 版本化。包名带 v1，破坏性变更升 v2，旧版本保留至少一个 minor 周期。
+//   C5 单向依赖。层间依赖只允许 L0→L1→L2→L3→L4 方向。
+//
+// 维护铁律（09 §R1）：
+//   本文件已冻结。任何变更必须走独立 PR，标题前缀 `contract:`，且需双人 review
+//   （其中一人必须是 M4 反幻觉负责人）。
+//
+// 标注约定：
+//   [frozen]  该字段/消息的字段与语义逐字来自 05，不得改动。
+//   [derived] 05 在 service RPC 中引用了该消息名，但未给出完整字段表。
+//             此处按 RPC 语义补齐最小字段集，仅用于让契约可编译。
+//             本标注不影响冻结状态 —— 派生字段同样需要 `contract:` 流程才能修改。
+syntax = "proto3";
+
+package aleth.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// go_package 指向实际生成位置 core/api/aleth/v1（由 proto/buf.gen.yaml 的
+// out: core/api 决定）。包名 alethv1 与 05 §0 C4 的版本化语义对应。
+option go_package = "github.com/AperturePrism/aleth/core/api/aleth/v1;alethv1";
+option java_multiple_files = true;
+option java_package = "com.apertureprism.aleth.v1";
+
+// ============================================================================
+// 通用约定（05 §1）
+// ============================================================================
+
+// 通用错误结构（05 §1.3）[frozen]
+// message 面向开发者的描述，禁止包含真实敏感值。
+message Error {
+  ErrorCode code = 1;
+  string message = 2;          // 面向开发者的描述，禁止包含真实敏感值
+  string remediation = 3;      // 可操作的建议
+  map<string, string> context = 4;   // 结构化上下文（ID 等，同样须脱敏）
+}
+
+// 错误码（05 §1.3）[frozen]
+// 熔断语义（硬约束）：
+//   SCOPE_VIOLATION       → 终止整场会话，不可继续
+//   BUDGET_EXCEEDED       → 终止当前会话，产出中间报告
+//   EVIDENCE_INVALID      → 丢弃该结论，幻觉计数 +1；超阈值终止该 agent
+//   ATTRIBUTION_MISMATCH  → 回滚该 finding 至 Hypothesis，触发 P0 告警
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  OK                     = 1;
+
+  // fail-closed 类（触发熔断）
+  SCOPE_VIOLATION        = 10;   // 越界，立即熔断整场会话
+  BUDGET_EXCEEDED        = 11;   // 预算耗尽，硬熔断
+  BUDGET_NEAR_LIMIT      = 12;   // 预算 ≥80%，收窄光圈
+  EVIDENCE_INVALID       = 13;   // 伪造/缺失 exec_id → 判定幻觉
+  ATTRIBUTION_MISMATCH   = 14;   // 证据归因错误（P0）
+  PRIVACY_LEAK_DETECTED  = 15;   // 出站含未脱敏敏感值，阻断
+
+  // 可重试类
+  TOOL_TIMEOUT           = 20;
+  TOOL_VERSION_MISMATCH  = 21;   // 工具版本不在适配器支持区间
+  UPSTREAM_UNAVAILABLE   = 22;
+  RATE_LIMITED           = 23;
+
+  // 业务类
+  CONTRACT_UNAVAILABLE   = 30;   // Intent Modeler 无契约输入
+  APERTURE_OVER_BUDGET   = 31;   // 装配超预算，需降档重试
+  TERMINATION_REFUSED    = 32;   // 终止请求被 Arbiter 拒绝
+  NOT_FOUND              = 33;
+  INVALID_ARGUMENT       = 34;
+}
+
+// Scope 校验失败层（05 §6.3 ScopeCheckResult）[frozen]
+enum ScopeLayer {
+  SCOPE_LAYER_UNSPECIFIED = 0;
+  NETWORK   = 1;
+  TOOL_PARAM = 2;
+  POST_DNS  = 3;
+}
+
+// ============================================================================
+// L0 —— 光谱摄入层（05 §2）
+// ============================================================================
+
+// EvidenceSpectrum —— L0 核心输出（05 §2.1）[frozen]
+// 一层工具执行所产生的结构化、确定性的观测结果。它是心智地图的输入，不是结论。
+// 契约约束：
+//   - exec_id 必须由 Sandbox 签发，L0 不得自行生成（见 §7.4）
+//   - argv 必须由参数化 Schema 确定性渲染，禁止 LLM 参与生成
+//   - 相同输入两次调用必须产出 content_hash 相同的 raw 与等价的 lines（确定性要求）
+message EvidenceSpectrum {
+  string spectrum_id     = 1;   // sp_{uuid7}
+  string exec_id         = 2;   // 由 Sandbox 签发，不可伪造
+  ToolInvocation tool    = 3;
+  RawOutputRef raw       = 4;   // 原始输出引用 + 指纹
+  repeated SpectrumLine lines = 5;   // 折叠后的行（无损折叠）
+  repeated EntityDraft entities = 6; // 抽取出的实体草稿
+  ParseQuality quality   = 7;   // 解析质量（用于后续置信度加权）
+  google.protobuf.Timestamp observed_at = 8;
+}
+
+// ToolInvocation（05 §2.1）[frozen]
+message ToolInvocation {
+  string tool_name    = 1;   // "nmap"
+  string tool_version = 2;   // "7.94"
+  repeated string argv = 3;  // 确定性渲染的完整 argv（可复现）
+  string argv_hash    = 4;   // argv 的哈希
+  string scope_decision_id = 5;  // 对应的 Scope 裁决记录 ID
+}
+
+// RawOutputRef（05 §2.1）[frozen]
+// 内容寻址：storage_uri 指向本地内容寻址存储中的原始输出文件。
+message RawOutputRef {
+  string content_hash = 1;    // 内容寻址：原始输出文件的哈希
+  string storage_uri  = 2;    // 存储位置（本地内容寻址存储）
+  uint64 size_bytes   = 3;
+  uint32 line_count   = 4;
+}
+
+// SpectrumLine（05 §2.1）[frozen]
+// 折叠后的行。orig_line_start / orig_line_end 保证折叠后可追溯到原始行号。
+message SpectrumLine {
+  uint32 orig_line_start = 1;  // 原始文件行号区间（折叠后可追溯）
+  uint32 orig_line_end   = 2;
+  uint32 fold_count      = 3;  // 被折叠的行数（1 表示未折叠）
+  string template        = 4;  // 折叠模板（如 "port 80/tcp open http"）
+  map<string,string> vars = 5; // 模板变量
+}
+
+// EntityDraft（05 §2.1）[frozen]
+// parser_confidence 由解析器给出（非 LLM）。
+message EntityDraft {
+  EntityKind kind = 1;         // 见 §3 实体类型
+  map<string,string> attributes = 2;
+  uint32 source_line = 3;      // 回指 SpectrumLine.orig_line_start
+  double parser_confidence = 4; // 0.0–1.0，由解析器给出（非 LLM）
+}
+
+// ParseQuality（05 §2.1）[frozen]
+message ParseQuality {
+  double coverage        = 1;  // 被解析器识别的行 / 总有效行
+  uint32 unparsed_lines  = 2;
+  repeated string warnings = 3;
+}
+
+// ToolRequest（05 §2.2）[frozen]
+// 禁止事项：不提供接受原始命令行字符串的接口。
+// 任何需要"任意命令"的场景必须新增适配器并走 review。
+message ToolRequest {
+  string tool_name = 1;
+  map<string,string> params = 2;   // 参数名必须匹配适配器 Schema，否则 INVALID_ARGUMENT
+  string session_id = 3;
+  string task_id = 4;
+}
+
+// IngestService（05 §2.2）[frozen]
+// 禁止事项：不提供接受原始命令行字符串的接口。
+service IngestService {
+  // 执行工具并产出光谱。内部完成：范围校验 → 参数渲染 → 沙箱执行 → 解析 → 折叠
+  rpc Execute(ToolRequest) returns (EvidenceSpectrum);
+
+  // 注册/查询工具适配器
+  rpc ListAdapters(ListAdaptersRequest) returns (ListAdaptersResponse);
+
+  // 校验工具可用性与版本（fail-closed：版本不匹配返回 TOOL_VERSION_MISMATCH）
+  rpc ValidateTool(ValidateToolRequest) returns (ValidateToolResponse);
+}
+
+// [derived] 05 §2.2 引用。ListAdapters 的分页请求。
+message ListAdaptersRequest {
+  // 0 表示不限制。按 tool_name 字典序返回以保证确定性。
+  uint32 offset = 1;
+  uint32 limit = 2;
+}
+
+// [derived] 05 §2.2 引用。返回已注册适配器的元数据。
+message ListAdaptersResponse {
+  message AdapterInfo {
+    string tool_name = 1;
+    // 适配器声明的支持版本区间。启动时校验，不匹配即 fail-closed
+    // （TOOL_VERSION_MISMATCH），不静默降级。
+    string min_version = 2;
+    string max_version = 3;
+    // 参数化 Schema 中的参数名集合（argv 由 Schema 确定性渲染，禁止 LLM 参与）。
+    repeated string param_names = 4;
+    repeated string required_params = 5;
+  }
+  repeated AdapterInfo adapters = 1;
+  uint32 total = 2;
+}
+
+// [derived] 05 §2.2 引用。
+message ValidateToolRequest {
+  string tool_name = 1;
+}
+
+// [derived] 05 §2.2 引用。
+message ValidateToolResponse {
+  bool available = 1;
+  string detected_version = 2;
+  // 版本不在适配器支持区间时置位，对应 TOOL_VERSION_MISMATCH（fail-closed）。
+  bool version_mismatch = 3;
+  Error error = 4;
+}
+
+// ============================================================================
+// L1 —— 心智地图（05 §3）
+// ============================================================================
+
+// 七类实体（05 §3.1）[frozen]
+enum EntityKind {
+  ENTITY_KIND_UNSPECIFIED = 0;
+  ASSET    = 1;   // 主机/网段/域名
+  SERVICE  = 2;   // 端口上的服务
+  IDENTITY = 3;   // 用户/凭据/会话/权限集
+  ENDPOINT = 4;   // URL / 方法 / 参数
+  DEFECT   = 5;   // 缺陷（含状态机，见 §5.1）
+  PATH     = 6;   // 利用链
+  TIMELINE = 7;   // 事件
+}
+
+// Entity（05 §3.1）[frozen]
+message Entity {
+  string entity_id = 1;
+  EntityKind kind = 2;
+  map<string,string> attributes = 3;
+
+  // 时间版本
+  google.protobuf.Timestamp valid_from = 4;
+  google.protobuf.Timestamp valid_to   = 5;   // 空 = 当前有效
+  uint32 version = 6;                          // 同一实体的第 n 个版本
+
+  // 来源与置信度
+  repeated Provenance sources = 7;   // 多源写入（审计要求）
+  double confidence = 8;             // 0.0–1.0
+  bool is_hypothesis = 9;            // true → 假设分支，可整体回滚
+  string branch_id = 10;             // 所属假设分支
+}
+
+// SourceKind（05 §3.1 Provenance）[frozen]
+enum SourceKind {
+  SOURCE_KIND_UNSPECIFIED = 0;
+  ACTIVE_SCAN     = 1;
+  PASSIVE_TRAFFIC = 2;
+  WHITEBOX_SOURCE = 3;
+  BINARY          = 4;
+  HISTORICAL      = 5;
+  LLM_INFERRED    = 6;
+}
+
+// Provenance（05 §3.1）[frozen]
+// evidence_id 关联证据（LLM_INFERRED 可为空，但这条实体的 confidence 必须 < 0.5）
+message Provenance {
+  SourceKind source_kind = 1;
+  string evidence_id = 2;
+  string exec_id = 3;
+  google.protobuf.Timestamp observed_at = 4;
+}
+
+// RelationType（05 §3.1 Relation）[frozen]
+// 关键关系类型 CONTRADICTS：三路融合（M7）产生的冲突以此关系落图，冲突不合并。
+enum RelationType {
+  RELATION_TYPE_UNSPECIFIED = 0;
+  RESOLVES_TO     = 1;
+  RUNS_ON         = 2;
+  AUTHENTICATES_TO = 3;
+  HAS_PRIVILEGE   = 4;
+  EXPOSES         = 5;
+  BELONGS_TO      = 6;
+  INVOKES         = 7;
+  LOCATED_IN      = 8;
+  EXPLOITED_BY    = 9;
+  ENABLES         = 10;
+  REQUIRES        = 11;
+  PRECEDED_BY     = 12;
+  CORROBORATES    = 13;
+  CONTRADICTS     = 14;
+}
+
+// Relation（05 §3.1）[frozen]
+message Relation {
+  string relation_id = 1;
+  string from_entity = 2;
+  string to_entity = 3;
+  RelationType type = 4;
+  map<string,string> attributes = 5;
+  double confidence = 6;
+  string evidence_id = 7;
+  google.protobuf.Timestamp valid_from = 8;
+}
+
+// ScopeInfo（05 §6.3 ScopeService / §7.2 Report.scope）[frozen 字段]
+// 授权与范围。在 Report 中必填，用于合规。
+message ScopeInfo {
+  repeated string include = 1;   // 归一化后的包含目标
+  repeated string exclude = 2;   // 归一化后的排除目标（排除项永远优先于包含项）
+  string authorization_ref = 3;  // 授权凭证引用（哈希 / 工单号），非明文凭证内容
+  string authorization_hash = 4; // 凭证内容哈希（写入审计链）
+  string denial_policy = 5;      // 恒为 "DEFAULT_DENY"（默认拒绝，不是默认放行）
+}
+
+// ProjectedSubgraph（05 §3.3 PrismService.Project）[frozen 字段]
+// 按焦点与孔径返回的子图（供 L2 使用）。
+message ProjectedSubgraph {
+  repeated Entity entities = 1;
+  repeated Relation relations = 2;
+  string snapshot_id = 3;   // 用于 SnapshotAt 时标识认知状态版本
+}
+
+// PrismService（05 §3.3）[frozen]
+service PrismService {
+  // 写入光谱（幂等：相同 spectrum_id 重复写入不产生副作用）
+  rpc Ingest(EvidenceSpectrum) returns (IngestResult);
+
+  // 投影：按焦点与孔径返回子图（供 L2 使用，见 §4）
+  rpc Project(ProjectRequest) returns (ProjectedSubgraph);
+
+  // 时间回放：返回 T 时刻的认知状态
+  rpc SnapshotAt(SnapshotAtRequest) returns (ProjectedSubgraph);
+
+  // 假设分支管理
+  rpc CreateBranch(CreateBranchRequest) returns (BranchInfo);
+  rpc RollbackBranch(RollbackBranchRequest) returns (RollbackResult);
+  rpc MergeBranch(MergeBranchRequest) returns (MergeResult);
+}
+
+// IngestResult（05 §3.3）[frozen]
+message IngestResult {
+  repeated string created_entity_ids = 1;
+  repeated string updated_entity_ids = 2;
+  repeated Conflict conflicts = 3;    // 多源冲突（保留多版本，不合并）
+}
+
+// Conflict（05 §3.3）[frozen]
+message Conflict {
+  string entity_id = 1;
+  repeated Provenance competing_sources = 2;
+  string conflict_type = 3;   // VALUE_MISMATCH / EXISTENCE_MISMATCH / CONTRADICTS
+}
+
+// [derived] 05 §3.3 引用。
+message ProjectRequest {
+  string branch_id = 1;
+  // 焦点描述。空表示无特定焦点（返回全景投影）。
+  string focus = 2;
+  uint32 max_hops = 3;
+  uint32 max_entities = 4;
+  // 限定投影的实体类型。空表示全部七类。
+  repeated EntityKind kinds = 5;
+}
+
+// [derived] 05 §3.3 引用。时间回放到 T 时刻的认知状态。
+message SnapshotAtRequest {
+  string branch_id = 1;
+  google.protobuf.Timestamp at = 2;
+  uint32 max_entities = 3;
+}
+
+// [derived] 05 §3.3 引用。
+message CreateBranchRequest {
+  string session_id = 1;
+  string branch_name = 2;
+  // 从哪个分支派生。空表示从主分支派生。
+  string parent_branch_id = 3;
+  string rationale = 4;
+}
+
+// [derived] 05 §3.3 引用。
+message BranchInfo {
+  string branch_id = 1;
+  string branch_name = 2;
+  string parent_branch_id = 3;
+  string rationale = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+// [derived] 05 §3.3 引用。
+message RollbackBranchRequest {
+  string branch_id = 1;
+  // 回滚到该分支的哪一版本。空表示整体丢弃该分支。
+  uint32 to_version = 2;
+}
+
+// [derived] 05 §3.3 引用。
+message RollbackResult {
+  // 回滚后图状态与分支前必须字节级一致（I4 DoD③）。
+  string state_hash_before = 1;
+  string state_hash_after = 2;
+  bool byte_identical = 3;
+  uint32 rolled_back_entity_count = 4;
+}
+
+// [derived] 05 §3.3 引用。
+message MergeBranchRequest {
+  string source_branch_id = 1;
+  string target_branch_id = 2;
+  // 冲突处理策略。CONTRADICTS 冲突永不合并，只登记（05 §3.1）。
+  string conflict_policy = 3;
+}
+
+// [derived] 05 §3.3 引用。
+message MergeResult {
+  bool merged = 1;
+  repeated Conflict unresolved_conflicts = 2;
+  Error error = 3;
+}
+
+// ============================================================================
+// L2 —— 光圈控制（05 §4）
+// ============================================================================
+
+// ApertureSetting（05 §4.1）[frozen]
+message ApertureSetting {
+  // 三档光圈。
+  enum Stop {
+    STOP_UNSPECIFIED = 0;
+    F_1_4 = 1;    // 大孔径：宽而浅（攻击面总览）
+    F_4   = 2;    // 中孔径：平衡（常规分析）
+    F_16  = 3;    // 小孔径：窄而深（单点利用）
+  }
+  Stop stop = 1;
+  uint32 max_hops = 2;         // 图遍历跳数
+  uint32 max_entities = 3;     // 实体数上限
+  uint32 depth_per_entity = 4; // 每实体属性深度
+}
+
+// ContextBundle —— L2 唯一输出（05 §4.1）[frozen]
+// 契约约束：estimated_tokens > budget_tokens 时，ApertureService 必须返回
+// APERTURE_OVER_BUDGET 错误，禁止截断后返回。
+message ContextBundle {
+  string bundle_id = 1;
+  ApertureSetting aperture = 2;
+  repeated Entity entities = 3;
+  repeated Relation relations = 4;
+  repeated EvidenceEntry evidence = 5;     // 引用的证据（摘要形式，完整证据按需拉取）
+  uint32 estimated_tokens = 6;
+  uint32 budget_tokens = 7;                // 装配时的预算上限
+  repeated string truncated_dimensions = 8;// 因预算被省略的维度（必须显式记录）
+  string focal_point = 9;                  // 焦点描述（可审计）
+  repeated string selection_reasons = 10;  // 为什么选这些实体（可审计）
+}
+
+// ApertureService（05 §4.2）[frozen]
+service ApertureService {
+  // 装配上下文（核心接口）
+  rpc Assemble(AssembleRequest) returns (ContextBundle);
+
+  // 自动对焦：给定任务与假设，返回焦点
+  rpc Autofocus(AutofocusRequest) returns (AutofocusResult);
+}
+
+// AssembleRequest（05 §4.2）[frozen]
+message AssembleRequest {
+  string task_id = 1;
+  string session_id = 2;
+  string focus_hint = 3;              // 可选：调用方指定的焦点
+  uint32 budget_tokens = 4;           // 硬上限
+  ApertureSetting.Stop preferred_stop = 5;
+  bool allow_downgrade = 6;           // 超预算时是否允许自动降档重试
+}
+
+// [derived] 05 §4.2 引用。
+message AutofocusRequest {
+  string task_id = 1;
+  string session_id = 2;
+  // 当前待验证假设。用于从心智地图定位焦点子图。
+  string hypothesis = 3;
+}
+
+// [derived] 05 §4.2 引用。
+message AutofocusResult {
+  string focal_point = 1;          // 焦点描述（可审计）
+  repeated string entity_ids = 2;  // 焦点子图中的实体
+  ApertureSetting.Stop suggested_stop = 3;
+  repeated string reasons = 4;     // 定位依据（可审计）
+}
+
+// ============================================================================
+// L3 —— 焦平面与证据账本（05 §5）
+// ============================================================================
+
+// FindingStatus（05 §5.1 状态机 / §5.3 ValidateAssertionResult）[frozen]
+//
+// 状态机：
+//   HYPOTHESIS ──▶ CANDIDATE ──▶ CONFIRMED ──▶ Report
+//   任一闸门失败 ──▶ REJECTED（记录失败原因，供 Refiner 学习）
+//   G-1 失败     ──▶ 幻觉计数 +1，不产生 Finding 记录
+//
+// 不允许逆转的状态跃迁：CONFIRMED → CANDIDATE 只允许由 ATTRIBUTION_MISMATCH
+// 或人工复核触发。
+// 本状态是整个项目反幻觉机制的核心（09 §R4）：不存在任何其他方式
+// 让一个结论变成 CONFIRMED。
+enum FindingStatus {
+  FINDING_STATUS_UNSPECIFIED = 0;
+  HYPOTHESIS = 1;   // 推测 —— 仅调试可见，不进任何报告
+  CANDIDATE = 2;    // 强证据待验证 —— 进附录报告
+  CONFIRMED = 3;    // 有可复现 PoC —— 唯一进主报告的等级
+  REJECTED  = 4;    // 闸门失败（记录失败原因，供 Refiner 学习）
+}
+
+// EvidenceEntry（05 §5.2）[frozen]
+// 防篡改链：append-only + prev_hash / self_hash 哈希链。
+message EvidenceEntry {
+  string evidence_id  = 1;
+  string exec_id      = 2;   // 必须由 Sandbox 签发
+  ToolInvocation tool = 3;
+  RawOutputRef raw    = 4;
+  repeated Assertion assertions = 5;
+  repeated SideEffectObservation side_effects = 6;
+  ReproSpec reproducibility = 7;
+  google.protobuf.Timestamp created_at = 8;
+
+  // 防篡改链
+  string prev_hash = 9;      // 前一条证据哈希（append-only 链）
+  string self_hash = 10;
+}
+
+// AssertionType（05 §5.2 Assertion）[frozen]
+enum AssertionType {
+  ASSERTION_TYPE_UNSPECIFIED = 0;
+  EXISTENCE      = 1;
+  EXPLOITABILITY = 2;
+  PRIVILEGE      = 3;
+  DATA_ACCESS    = 4;
+  CONFIG         = 5;
+}
+
+// Assertion（05 §5.2）[frozen]
+// strength 由 G-3 计算，非 LLM 自评。
+message Assertion {
+  string assertion_id = 1;
+  string statement = 2;              // 自然语言断言，如 "svc_x 存在 CVE-2024-1234"
+  AssertionType type = 3;
+  string target_entity_id = 4;
+  repeated string supporting_evidence_ids = 5;   // 支撑证据（双向校验的"证据→断言"方向）
+  double strength = 6;               // 由 G-3 计算，非 LLM 自评
+}
+
+// ObserverKind（05 §5.2 SideEffectObservation）[frozen]
+enum ObserverKind {
+  OBSERVER_KIND_UNSPECIFIED = 0;
+  ID_OUTPUT       = 1;
+  FILE_CREATED    = 2;
+  ACCOUNT_CREATED = 3;
+  DATA_RETURNED   = 4;
+  PROCESS_SPAWNED = 5;
+  CONFIG_CHANGED  = 6;
+}
+
+// SideEffectObservation（05 §5.2）[frozen]
+// observation 必须是可正则匹配的执行痕迹（如 uid=0 输出），
+// 禁止用字符串匹配判定利用是否成功（09 §6 #13，D1 幻觉式成功的根因）。
+message SideEffectObservation {
+  ObserverKind kind = 1;
+  string observation = 2;        // 强证据：必须是可正则匹配的执行痕迹
+  string matched_pattern = 3;    // 命中的验证模式（可审计）
+  string exec_id = 4;            // 观测本身也必须有 exec_id
+}
+
+// ReproSpec（05 §5.2）[frozen]
+message ReproSpec {
+  repeated string steps = 1;          // 最简复现步骤（确定性命令序列）
+  string environment_hash = 2;        // 环境指纹（镜像 + 网络 + 目标版本）
+  double estimated_minutes = 3;
+}
+
+// GateResult（05 §5.3）[frozen]
+message GateResult {
+  bool passed = 1;
+  string reason = 2;
+  repeated string evidence_refs = 3;
+}
+
+// LedgerService（05 §5.3）[frozen]
+// 本服务是系统里唯一有权说"这个发现成立"的模块（modules/M4）。
+service LedgerService {
+  // 追加证据（append-only，不可修改/删除）
+  rpc Append(AppendEvidenceRequest) returns (AppendEvidenceResult);
+
+  // 断言校验（四道闸门）
+  rpc ValidateAssertion(ValidateAssertionRequest) returns (ValidateAssertionResult);
+
+  // 记录副作用观测
+  rpc RecordSideEffect(RecordSideEffectRequest) returns (RecordSideEffectResult);
+
+  // 触发独立复现
+  rpc Reproduce(ReproduceRequest) returns (ReproduceResult);
+
+  // 查询某 finding 的完整证据链
+  rpc TraceFinding(TraceFindingRequest) returns (TracedEvidenceChain);
+
+  // 幻觉计数
+  rpc ReportHallucination(ReportHallucinationRequest) returns (HallucinationState);
+}
+
+// ValidateAssertionResult（05 §5.3）[frozen]
+// resulting_status: HYPOTHESIS / CANDIDATE / CONFIRMED / REJECTED
+message ValidateAssertionResult {
+  GateResult g1_exec_bound   = 1;
+  GateResult g2_assertion    = 2;
+  GateResult g3_strength     = 3;
+  GateResult g4_reproduction = 4;
+  FindingStatus resulting_status = 5;
+  repeated Error errors = 6;
+}
+
+// [derived] 05 §5.3 引用。
+message AppendEvidenceRequest {
+  EvidenceEntry entry = 1;
+  // 为 true 时若 evidence_id 已存在则返回既有记录（幂等），不重复追加。
+  bool idempotent = 2;
+}
+
+// [derived] 05 §5.3 引用。
+message AppendEvidenceResult {
+  string evidence_id = 1;
+  string self_hash = 2;
+  string prev_hash = 3;
+  Error error = 4;
+}
+
+// [derived] 05 §5.3 引用。
+// 四道闸门：
+//   G-1 执行绑定  —— exec_id 必须由 Sandbox 签发且签名可验
+//   G-2 断言校验  —— 账本中存在支撑证据
+//   G-3 证据强度  —— 有目标侧副作用观测
+//   G-4 独立复现  —— 复现通过
+message ValidateAssertionRequest {
+  Assertion assertion = 1;
+  string session_id = 2;
+  string task_id = 3;
+}
+
+// [derived] 05 §5.3 引用。
+message RecordSideEffectRequest {
+  SideEffectObservation observation = 1;
+  string session_id = 2;
+  string task_id = 3;
+}
+
+// [derived] 05 §5.3 引用。
+message RecordSideEffectResult {
+  string observation_id = 1;
+  // 副作用观测命中的验证模式（可审计）。未命中任何模式 → 不计入 G-3 强度。
+  string matched_pattern = 2;
+  bool accepted = 3;
+  Error error = 4;
+}
+
+// [derived] 05 §5.3 引用。
+// G-4：复现环境由 Sandbox 独立创建（不由 agent 提供），
+// 复现结果同样需要副作用观测（07 §T4.4）。
+message ReproduceRequest {
+  string evidence_id = 1;
+  string finding_id = 2;
+  ReproSpec spec = 3;
+}
+
+// [derived] 05 §5.3 引用。
+message ReproduceResult {
+  bool reproduced = 1;
+  string environment_hash = 2;
+  string reproduction_exec_id = 3;   // 复现执行的 exec_id（Sandbox 签发）
+  GateResult g4 = 4;
+  Error error = 5;
+}
+
+// [derived] 05 §5.3 引用。
+message TraceFindingRequest {
+  string finding_id = 1;
+}
+
+// [derived] 05 §5.3 引用。
+// 完整证据链：finding → assertions → evidence → exec_id → 原始输出行号。
+// 这条链就是 WebUI 证据链视图（06 页面 4）的数据来源。
+message TracedEvidenceChain {
+  string finding_id = 1;
+  repeated Assertion assertions = 2;
+  repeated EvidenceEntry evidence = 3;
+  repeated SideEffectObservation side_effects = 4;
+  // 归因校验：证据↔断言关联必须双向可查且 target 一致（05 §I2 关键决策③）。
+  // 不一致触发 ATTRIBUTION_MISMATCH + P0 告警 + 回滚。
+  bool attribution_consistent = 5;
+  repeated Error attribution_errors = 6;
+}
+
+// [derived] 05 §5.3 引用。
+message ReportHallucinationRequest {
+  string session_id = 1;
+  string task_id = 2;
+  string agent_id = 3;
+  // 幻觉类型（如 G1 失败 / SUSPECTED_HALLUCINATION）。
+  string hallucination_type = 4;
+  string detail = 5;
+}
+
+// [derived] 05 §5.3 引用。
+message HallucinationState {
+  string session_id = 1;
+  uint32 hallucination_count = 2;
+  uint32 threshold = 3;
+  // 超阈值时该 agent 必须被终止（EVIDENCE_INVALID 熔断语义）。
+  bool agent_circuit_open = 4;
+  Error error = 5;
+}
+
+// ============================================================================
+// 终止仲裁（05 §5.4）
+// ============================================================================
+
+// TerminationService（05 §5.4）[frozen]
+// 硬约束：RequestTermination 是全系统唯一的会话终止入口（除熔断外）。
+// 任何直接 return / raise SystemExit / 关闭 session 的路径都是 P0 缺陷（09 §R6）。
+service TerminationService {
+  // agent 请求终止 —— 无权限自行终止
+  rpc RequestTermination(TerminationRequest) returns (TerminationDecision);
+}
+
+// TerminationRequest（05 §5.4）[frozen]
+message TerminationRequest {
+  string session_id = 1;
+  string agent_id = 2;
+  string goal_definition = 3;        // 原始目标定义（来自 ROE）
+  string claimed_achievement = 4;    // 声称达成了什么
+  repeated string evidence_ids = 5;  // 证据包
+  string target_entity_id = 6;       // 目标归属
+}
+
+// TerminationDecision（05 §5.4）[frozen]
+message TerminationDecision {
+  bool approved = 1;
+  TerminationRefusalReason refusal_reason = 2;
+  string guidance = 3;   // 被拒后给 agent 的建议（避免陷入循环）
+}
+
+// TerminationRefusalReason（05 §5.4）[frozen]
+enum TerminationRefusalReason {
+  TERMINATION_REFUSAL_UNSPECIFIED = 0;
+  GOAL_MISMATCH          = 1;   // 达成物与目标不符
+  ATTRIBUTION_UNCONFIRMED = 2;  // 目标归属未确认
+  EVIDENCE_INSUFFICIENT  = 3;   // 证据未过闸门
+  SUSPECTED_HALLUCINATION = 4;  // 疑似幻觉（如随机哈希被当作 flag）
+}
+
+// ============================================================================
+// L4 —— 编排层（05 §6）
+// ============================================================================
+
+// AgentRole（05 §6.1 Task）[frozen]
+enum AgentRole {
+  AGENT_ROLE_UNSPECIFIED = 0;
+  RECON        = 1;
+  SCANNER      = 2;
+  FUZZER       = 3;
+  EXPLOITER    = 4;
+  POST_EXPLOIT = 5;
+  REPORTER     = 6;
+  REFINER      = 7;   // 失败模式驱动的指令改写
+  ARBITER      = 8;   // 独立校验（对应 TerminationService）
+}
+
+// TaskStatus（05 §6.1 Task）[frozen]
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  PENDING        = 1;
+  READY          = 2;   // 依赖已满足
+  RUNNING        = 3;
+  DONE           = 4;
+  FAILED         = 5;
+  SKIPPED        = 6;
+  CIRCUIT_BROKEN = 7;   // 因熔断终止
+}
+
+// Task（05 §6.1）[frozen]
+message Task {
+  string task_id = 1;
+  string title = 2;
+  string objective = 3;
+  AgentRole required_role = 4;
+  repeated string depends_on = 5;      // 前置任务（确定性求解器据此拓扑排序）
+  TaskStatus status = 6;
+  uint32 budget_tokens = 7;
+  ContextBundle context = 8;           // 由 L2 装配（非 LLM 拼装）
+  repeated string produced_evidence = 9;
+  uint32 attempt = 10;
+  repeated FailureRecord failures = 11;
+}
+
+// FailureRecord（05 §6.1）[frozen]
+message FailureRecord {
+  string failure_type = 1;
+  string detail = 2;
+  string refiner_guidance = 3;   // Refiner 给出的改写建议
+}
+
+// TaskGraph（05 §6.1）[frozen]
+message TaskGraph {
+  string graph_id = 1;
+  string session_id = 2;
+  repeated Task tasks = 3;
+  string plan_revision = 4;        // 计划版本（Refiner 改写后递增）
+  string plan_rationale = 5;       // LLM 给出的规划理由（可审计）
+}
+
+// OrchestratorService（05 §6.2）[frozen]
+// 关键设计：NextReady 的实现不得调用 LLM —— 它是拓扑排序 + 资源约束求解。
+service OrchestratorService {
+  rpc Plan(PlanRequest) returns (TaskGraph);
+  rpc NextReady(NextReadyRequest) returns (NextReadyResponse);   // 确定性：拓扑 + 资源约束
+  rpc ReportTaskResult(ReportTaskResultRequest) returns (TaskUpdateResult);
+  rpc Refine(RefineRequest) returns (TaskGraph);                 // 失败驱动改写
+  rpc Checkpoint(CheckpointRequest) returns (CheckpointInfo);
+  rpc Rewind(RewindRequest) returns (RewindResult);
+  rpc Fork(ForkRequest) returns (ForkResult);
+}
+
+// [derived] 05 §6.2 引用。
+message PlanRequest {
+  string session_id = 1;
+  // LLM 生成的"有哪些任务、依赖关系"的任务图草稿。
+  // 注意：LLM 只生成任务与依赖，不做逐步决策 —— 序列求解交给确定性规划器。
+  TaskGraph proposed_graph = 2;
+  uint32 budget_tokens = 3;
+}
+
+// [derived] 05 §6.2 引用。
+message NextReadyRequest {
+  string session_id = 1;
+  string graph_id = 2;
+  uint32 available_slots = 3;   // 资源约束：当前可用并发槽位数
+}
+
+// [derived] 05 §6.2 引用。
+message NextReadyResponse {
+  repeated string ready_task_ids = 1;   // 拓扑排序 + 资源约束的确定性结果
+  // 被阻塞的任务及其阻塞原因（可审计）。
+  map<string, string> blocked_reasons = 2;
+}
+
+// [derived] 05 §6.2 引用。
+message ReportTaskResultRequest {
+  string session_id = 1;
+  string task_id = 2;
+  TaskStatus status = 3;
+  repeated FailureRecord failures = 4;
+  repeated string produced_evidence = 5;
+}
+
+// [derived] 05 §6.2 引用。
+message TaskUpdateResult {
+  Task updated_task = 1;
+  TaskGraph updated_graph = 2;
+  Error error = 3;
+}
+
+// [derived] 05 §6.2 引用。
+message RefineRequest {
+  string session_id = 1;
+  string graph_id = 2;
+  repeated FailureRecord failures = 3;
+  string refiner_guidance = 4;
+}
+
+// [derived] 05 §6.2 引用。
+message CheckpointRequest {
+  string session_id = 1;
+  string label = 2;
+}
+
+// [derived] 05 §6.2 引用。
+message CheckpointInfo {
+  string checkpoint_id = 1;
+  string session_id = 2;
+  string label = 3;
+  string plan_revision = 4;
+  string graph_version = 5;   // 心智地图版本号
+  string budget_snapshot_hash = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// [derived] 05 §6.2 引用。
+message RewindRequest {
+  string session_id = 1;
+  string checkpoint_id = 2;
+}
+
+// [derived] 05 §6.2 引用。
+message RewindResult {
+  string session_id = 1;
+  string restored_checkpoint_id = 2;
+  // rewind 到任一检查点后重跑，证据一致性校验必须通过（I6 DoD③）。
+  bool evidence_consistent = 3;
+  Error error = 4;
+}
+
+// [derived] 05 §6.2 引用。
+message ForkRequest {
+  string session_id = 1;
+  string checkpoint_id = 2;
+  string fork_name = 3;
+}
+
+// [derived] 05 §6.2 引用。
+message ForkResult {
+  string new_session_id = 1;
+  string parent_session_id = 2;
+  string root_checkpoint_id = 3;
+  Error error = 4;
+}
+
+// ============================================================================
+// 横切服务：Scope / Governor / Sandbox / Gateway（05 §6.3、§6.4）
+// ============================================================================
+
+// ScopeService（05 §6.3）[frozen]
+service ScopeService {
+  // 三重校验：network / tool_param / post_dns
+  rpc Check(ScopeCheckRequest) returns (ScopeCheckResult);
+  rpc LoadScope(LoadScopeRequest) returns (ScopeInfo);   // 绑定授权凭证
+}
+
+// ScopeCheckResult（05 §6.3）[frozen]
+// 熔断语义（不可协商，09 §R8）：任何 DENY → 立即熔断整场会话，
+// 不是跳过该请求、不是告警后继续。
+message ScopeCheckResult {
+  bool allowed = 1;             // 无中间态
+  ScopeLayer failed_layer = 2;  // NETWORK / TOOL_PARAM / POST_DNS
+  string decision_id = 3;       // 裁决记录 ID（写入审计）
+  string reason = 4;
+}
+
+// [derived] 05 §6.3 引用。
+message ScopeCheckRequest {
+  string session_id = 1;
+  // 待校验的目标。由调用方给出原始形式（可能是十进制/八进制/十六进制 IP、
+  // IPv6 映射、带 userinfo 的 URL、尾点域名等），Scope Kernel 负责归一化后比对。
+  string target = 2;
+  // 发起校验的层（用于定位 failed_layer）。
+  ScopeLayer layer = 3;
+  // 工具参数中的 target 字段值（TOOL_PARAM 层使用）。
+  string tool_name = 4;
+  // 请求的动作（用于校验是否在 ROE allow 白名单中）。
+  string action = 5;
+}
+
+// [derived] 05 §6.3 引用。
+message LoadScopeRequest {
+  string session_id = 1;
+  // 授权凭证文件路径（YAML，schema 见 docs/schemas/roe.schema.json）。
+  string authorization_path = 2;
+}
+
+// GovernorService（05 §6.3）[frozen]
+service GovernorService {
+  rpc Reserve(ReserveRequest) returns (ReserveResult);   // 预扣预算
+  rpc Consume(ConsumeRequest) returns (BudgetState);     // 实际消耗
+  rpc State(BudgetStateRequest) returns (BudgetState);
+  rpc CheckCircuit(CircuitCheckRequest) returns (CircuitState);
+}
+
+// BudgetState（05 §6.3）[frozen]
+message BudgetState {
+  uint32 total_tokens = 1;
+  uint32 consumed_tokens = 2;
+  uint32 reserved_tokens = 3;
+  double utilization = 4;        // consumed / total
+  bool circuit_open = 5;         // true → 调用方必须停止
+  bool aperture_narrowed = 6;    // utilization ≥ 0.8 时为 true
+}
+
+// [derived] 05 §6.3 引用。
+message ReserveRequest {
+  string session_id = 1;
+  string task_id = 2;
+  uint32 estimated_tokens = 3;
+}
+
+// [derived] 05 §6.3 引用。
+// 预扣失败即拒绝执行（fail-closed，P-4）。不允许"best effort 继续"。
+message ReserveResult {
+  bool reserved = 1;
+  uint32 reserved_tokens = 2;
+  BudgetState state = 3;
+  Error error = 4;
+}
+
+// [derived] 05 §6.3 引用。
+message ConsumeRequest {
+  string session_id = 1;
+  string task_id = 2;
+  uint32 actual_tokens = 3;
+}
+
+// [derived] 05 §6.3 引用。
+message BudgetStateRequest {
+  string session_id = 1;
+}
+
+// [derived] 05 §6.3 引用。
+message CircuitCheckRequest {
+  string session_id = 1;
+}
+
+// [derived] 05 §6.3 引用。
+message CircuitState {
+  bool circuit_open = 1;
+  string trigger_reason = 2;
+  BudgetState budget = 3;
+}
+
+// SandboxService（05 §6.3）[frozen]
+service SandboxService {
+  // 执行 + 签发 exec_id（唯一合法签发者）
+  rpc Execute(SandboxExecRequest) returns (SandboxExecResult);
+  rpc SignExecId(SignExecIdRequest) returns (SignedExecId);
+}
+
+// SignedExecId（05 §6.3）[frozen]
+// 私钥仅在 Sandbox 进程内，不出容器运行时（modules/M6 §7.2）。
+message SignedExecId {
+  string exec_id = 1;
+  string signature = 2;   // Sandbox 私钥签名
+  google.protobuf.Timestamp issued_at = 3;
+}
+
+// [derived] 05 §6.3 引用。
+message SandboxExecRequest {
+  string session_id = 1;
+  string task_id = 2;
+  string tool_name = 3;
+  // 已归一化并通过 scope 校验的参数（参数名必须匹配适配器 Schema）。
+  map<string, string> params = 4;
+  repeated string scope_decision_ids = 5;
+}
+
+// [derived] 05 §6.3 引用。
+// 必须非零码退出并把证据抛出来。
+message SandboxExecResult {
+  string exec_id = 1;
+  string signature = 2;
+  int32 exit_code = 3;
+  // 原始 stdout/stderr 引用。实际输出体存在内容寻址存储，不随消息传输。
+  RawOutputRef stdout_ref = 4;
+  RawOutputRef stderr_ref = 5;
+  Error error = 6;
+}
+
+// [derived] 05 §6.3 引用。
+message SignExecIdRequest {
+  string session_id = 1;
+  string task_id = 2;
+  // 请求签发的理由（写入审计）。
+  string purpose = 3;
+}
+
+// GatewayService（05 §6.4）[frozen]
+service GatewayService {
+  rpc Tokenize(TokenizeRequest) returns (TokenizeResult);     // 真实值 → token
+  rpc Detokenize(DetokenizeRequest) returns (DetokenizeResult); // token → 真实值（仅工具执行前）
+  rpc ScanOutbound(ScanRequest) returns (ScanResult);         // 出站二次扫描
+}
+
+// TokenMapping（05 §6.4 TokenizeResult）[frozen]
+// 映射表仅存本地且不落日志（07 §A2）。
+message TokenMapping {
+  string category = 1;   // IP_PRIVATE / HOST_INTERNAL / EMAIL / CREDENTIAL / PATH_INTERNAL
+  string token = 2;
+  // 真实值不随消息回传，只返回掩码形式供审计。
+  string masked_value = 3;
+}
+
+// TokenizeResult（05 §6.4）[frozen]
+message TokenizeResult {
+  string tokenized = 1;
+  repeated TokenMapping mappings = 2;
+}
+
+// [derived] 05 §6.4 引用。
+message TokenizeRequest {
+  string session_id = 1;
+  string content = 2;
+}
+
+// DetokenizeResult（05 §6.4）[frozen]
+// 仅工具执行前一刻调用。回注后工具看到真实值，仅模型侧脱敏。
+message DetokenizeResult {
+  string restored = 1;
+}
+
+// [derived] 05 §6.4 引用。
+message DetokenizeRequest {
+  string session_id = 1;
+  string content = 2;
+}
+
+// ScanResult（05 §6.4）[frozen]
+// 命中即阻断，返回 PRIVACY_LEAK_DETECTED。
+message ScanResult {
+  bool clean = 1;
+  repeated LeakHit hits = 2;
+}
+
+// [derived] 05 §6.4 引用。
+message ScanRequest {
+  string session_id = 1;
+  // 待扫描的出站内容。
+  string content = 2;
+  // 出站方向（如 model_request / tool_response / api_response），用于审计。
+  string direction = 3;
+}
+
+// LeakHit（05 §6.4）[frozen]
+// excerpt_masked 是命中片段的掩码形式（日志可用）。
+message LeakHit {
+  string category = 1;   // IP_PRIVATE / HOST_INTERNAL / EMAIL / CREDENTIAL / PATH_INTERNAL
+  uint32 offset = 2;
+  string excerpt_masked = 3;   // 命中片段的掩码形式（日志可用）
+}
+
+// ============================================================================
+// 报告产出契约（05 §7.2）
+// ============================================================================
+
+// Finding（05 §7.2 Report）[frozen]
+// 状态只能是 CANDIDATE（附录）或 CONFIRMED（主报告）。
+// 报告中不存在 HYPOTHESIS 字段 —— 从类型系统层面杜绝"把推测写进报告"
+// （README §4 约定 2、09 §6 #15 的对偶）。
+message Finding {
+  string finding_id = 1;
+  FindingStatus status = 2;   // 仅 CANDIDATE / CONFIRMED 会出现在 Report 中
+  string title = 3;
+  string target_entity_id = 4;
+  repeated string assertion_ids = 5;
+  repeated string evidence_ids = 6;
+  string cwe = 7;
+  string severity = 8;
+  // 复现步骤与副作用观测摘要，供报告渲染。
+  ReproSpec reproducibility = 9;
+  repeated SideEffectObservation side_effects = 10;
+}
+
+// EvidenceSummary（05 §7.2 Report）[frozen]
+message EvidenceSummary {
+  uint32 evidence_count = 1;
+  uint32 confirmed_count = 2;
+  uint32 candidate_count = 3;
+  // 证据归因准确率（M9 新增指标）：双向校验通过的证据 / 全部归因。
+  double attribution_accuracy = 4;
+  // 哈希链是否完整（断链即 SEV1，07 §8.1）。
+  bool ledger_chain_intact = 5;
+}
+
+// CostSummary（05 §7.2 Report）[frozen]
+message CostSummary {
+  uint32 total_tokens = 1;
+  uint32 consumed_tokens = 2;
+  double utilization = 3;
+  bool budget_circuit_open = 4;
+  string model_breakdown = 5;
+}
+
+// Limitation（05 §7.2 Report）[frozen]
+// 主动声明覆盖边界与失败 —— 这是项目诚实性的组成部分，
+// 不是可省略的免责条款。
+message Limitation {
+  string category = 1;
+  string description = 2;
+  // 受该限制影响的范围（如“黑盒无契约目标”）。
+  string affected_scope = 3;
+}
+
+// Report（05 §7.2）[frozen]
+// 硬约束：报告结构中没有放置 HYPOTHESIS 的字段。
+message Report {
+  string session_id = 1;
+  ScopeInfo scope = 2;              // 授权与范围（必填，用于合规）
+  repeated Finding confirmed = 3;   // 仅 CONFIRMED
+  repeated Finding candidates = 4;  // 附录
+  // 注意：HYPOTHESIS 不进报告结构（调试视图另存）
+  EvidenceSummary evidence_summary = 5;
+  CostSummary cost = 6;
+  repeated Limitation limitations = 7;   // 主动声明覆盖边界与失败
+}

@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "verbatimModuleSyntax": true,
+
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+
+    // 由 proto/buf.gen.yaml 生成的 TypeScript 类型在 web/src/gen。
+    // Q14 门禁：前端 TS 类型由 Protobuf 生成，禁止手工维护重复类型。
+    "paths": {
+      "@gen/*": ["./src/gen/*"]
+    }
+  },
+  "include": ["src"]
+}

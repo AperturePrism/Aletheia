@@ -1,0 +1,242 @@
+# Aletheia CI —— 实现 docs/04 §6 的 Q1–Q14 门禁。
+#
+# 设计原则（docs/10 §8「把检查固化为 CI —— 终极方案」）：
+#   本文件的长期目标是让自己变得不必要 —— 检查项一旦写进 CI 门禁，
+#   就无法自欺。docs/10 §8 的判断标准：
+#      如果一个检查项连续两个迭代都靠人工完成，它就应该被写成 CI 门禁。
+#
+# 因此本文件把 I0 能自动化的门禁全部固化。当前不能自动化的
+# （Q3/Q4/Q5 需要真实靶场、Q8 需要 24h）明确标注为"待对应迭代补齐"，
+# 而不是留一个假装通过的占位。
+#
+# Q3/Q4/Q5 是三条红线（docs/04 §6）：任何一条失败，无论功能多重要，
+# 一律不得合并。它们目前没有 CI 覆盖 —— 这是 I0 的已知缺口，
+# 在 I2（Q3）/ I3（Q4、Q5）补齐。在此之前的合并依赖 make redline。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # 允许手动触发（用来验证 CI 本身是否还活着）
+  workflow_dispatch:
+
+# 同一分支的新推送取消旧任务，省算力。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.24"
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ==========================================================================
+  # Job 1: 构建与测试（Q1）
+  # ==========================================================================
+  build-and-test:
+    name: build & test (Q1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        run: make env
+
+      # Q1：全部单元测试。Ubuntu 上有 gcc，因此 race 检测可启用 ——
+      # 本地 Windows 无 C 编译器时 GO_TEST_RACE 默认 0（见 Makefile 说明）。
+      - name: Unit tests (Q1)
+        run: GO_TEST_RACE=1 make test
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: |
+            **/*.log
+            .coverage
+          retention-days: 7
+
+  # ==========================================================================
+  # Job 2: 契约一致性（Q10 / Q14）
+  # ==========================================================================
+  contract:
+    name: contract (Q10/Q14)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        run: make env
+
+      # Q14：生成物与契约一致。
+      # 这一项是 R1（docs/09：不得擅自修改 05 契约）的自动化防线 ——
+      # 有人改了 proto 没重新生成，或手改了生成物，都在这里被拦下。
+      - name: Generated code is fresh (Q14)
+        run: make check-gen-fresh
+
+      # Q10：Go / Python / TypeScript 三侧生成物与 docs/05 一致。
+      - name: Contract consistency (Q10)
+        run: make test-contract
+
+  # ==========================================================================
+  # Job 3: Lint（Q7）
+  # ==========================================================================
+  lint:
+    name: lint (Q7)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        run: make env
+
+      - name: Lint (Q7)
+        run: make lint
+
+  # ==========================================================================
+  # Job 4: 安全静态检查（docs/10 §3 P2/P3 自动化）
+  # ==========================================================================
+  security-static:
+    name: security static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No-bypass scan (docs/10 §3 P3)
+        run: bash scripts/check-no-bypass.sh
+
+      # 变异验证：确认扫描脚本真的能抓到违规，而不是永远返回 OK。
+      # 缺少这一条，一个永真的扫描脚本会让所有"门禁已通过"的结论失去依据。
+      - name: Mutation-verify the scanner
+        run: |
+          make env >/dev/null 2>&1 || true
+          .venv/bin/python -m pytest tests/test_security_scan.py -q
+
+      - name: Frontend credential check (Q12)
+        run: bash scripts/check-frontend-credentials.sh
+
+      - name: Loopback default (Q13)
+        run: make check-loopback
+
+  # ==========================================================================
+  # Job 5: WebUI 嵌入冒烟（Q11）
+  # ==========================================================================
+  embed-smoke:
+    name: WebUI embed smoke (Q11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Build
+        run: |
+          npm install
+          make build
+
+      - name: Q11 smoke test
+        run: make verify-embed
+
+  # ==========================================================================
+  # Job 6: 覆盖率（Q2，I1 起为硬门禁）
+  # ==========================================================================
+  coverage:
+    name: coverage (Q2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        run: make env
+
+      # I0 阶段解析器尚未存在（I1 交付），因此覆盖率门禁暂不阻断。
+      # I1 起改为 continue-on-error: false，并确认阈值 90% 生效。
+      - name: Coverage (Q2)
+        continue-on-error: true
+        run: make coverage
+
+# ============================================================================
+# 尚未自动化的门禁（docs/04 §6）—— 明确记录，不用假通过掩盖
+# ============================================================================
+#
+# | 门禁 | 内容                             | 补齐迭代 |
+# |------|----------------------------------|----------|
+# | Q3   | 伪造证据注入 100% 被拒           | I2       |
+# | Q4   | 越界 100% fail-closed            | I3       |
+# | Q5   | 抓包零真实值泄漏                  | I3       |
+# | Q6   | 确定性（字节级一致）              | I1       |
+# | Q8   | 24h 长时稳定性                    | I0–I3 期间 |
+# | Q9   | 预算耗尽必然熔断                  | I3       |
+#
+# 在补齐之前，这些门禁靠 `make redline` 在本地/合并前执行。
+# 这是 I0 的已知缺口，按 docs/09 §10 第 4 项「偏差说明」要求如实记录。
