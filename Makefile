@@ -211,6 +211,10 @@ check-no-bypass: ## 10 §3 P3 检测：禁止 = CONFIRMED 直赋、except: pass�
 	@echo "附：自动化测试 tests/test_security_scan.py 会对该脚本做变异验证"
 	@echo "（确认它真的能抓到违规，而不是永远返回 OK）。"
 
+.PHONY: check-iteration-docs
+check-iteration-docs: ## docs/09 §10 第 9、10 项：交接文档与自检报告齐全
+	@bash scripts/check-iteration-docs.sh --all
+
 .PHONY: check-frontend-credentials
 check-frontend-credentials: ## Q12：前端无法直接访问真实凭据
 	@bash scripts/check-frontend-credentials.sh
@@ -235,6 +239,19 @@ dev: ## 并行启动 alethd 与 vite dev server（开发用）
 	@echo "启动 vite dev（7724）与 alethd（7723）。alethd 需另开终端："
 	@echo "  ./$(ALETHD_BIN) --authorization <roe.yaml>"
 	cd $(WEB_DIR) && $(NPM) run dev
+
+# ============================================================================
+# 清理
+# ============================================================================
+
+# ============================================================================
+# 一个命令跑全部门禁（CI 之外的本地总检）
+# ============================================================================
+
+.PHONY: gate
+gate: build test lint check-gen-fresh check-frontend-credentials check-loopback check-no-bypass check-iteration-docs ## 全部门禁（Q1/Q7/Q10–Q14 + P3 + 交付物）
+	@echo ""
+	@echo "全部门禁通过。（注意：Q3/Q4/Q5/Q6/Q8/Q9 见 .github/workflows/ci.yml 末尾的补齐计划）"
 
 # ============================================================================
 # 清理
