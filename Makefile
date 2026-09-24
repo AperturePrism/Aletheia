@@ -37,21 +37,38 @@ GO       := go
 
 # Python 解释器解析。
 #
-# 不要写死 .venv/bin/python —— 那个路径只在 venv 已创建时才存在。
-# CI 的 security-static job 只跑 pytest、不跑 make env，
-# 于是 . venv 不存在 → Error 127: .venv/bin/python: No such file or directory。
+# 不要写死 .venv/bin/python —— 该路径只在 venv 建成后存在。CI 的
+# security-static job 只跑 pytest、不跑 make env，写死路径时它必然失败
+# （Error 127: .venv/bin/python: No such file or directory）。
 #
-# 因此按优先级解析：
-#   1. 仓库 .venv（Windows/MSYS 与 Linux 两种布局都覆盖）
-#   2. PATH 上的 python3（CI 的 setup-python 已装好）
-# 这样"venv 未创建"不会让目标变成命令找不到，而是退化到可用解释器。
+# 但也不能无条件回退到 PATH 上的 python3：那台解释器没装 pytest，
+# 回退只会把 127 变成更隐密的 "No module named pytest"（五跑的真实失败）。
 #
-# 用 = 而非 := —— 延迟到调用时才求值；make env 建好 venv 后，
-# 同一进程内的后续目标也能看到它。
-PY = $(shell 	if [ -x .venv/Scripts/python.exe ]; then echo .venv/Scripts/python.exe; 	elif [ -x .venv/bin/python ]; then echo .venv/bin/python; 	elif command -v python3 >/dev/null 2>&1; then echo python3; 	else echo python; fi)
+# 因此规则是：
+#   1. 有 .venv  -> 用它（Windows 与 Linux 两种布局都覆盖）
+#   2. 无 .venv  -> 找 PATH 上**验证过 pytest 可用**的 python3 / python
+#   3. 都不可用   -> 直接报错并提示 make env，不静默降级
+#
+# 第 3 条的理由：静默降级到跑不起来的解释器，比明确失败危险得多 ——
+# docs/10 §0 把"让没查伪装成没问题"列为自检最典型的失真。
+PY = $(shell \
+	if [ -x .venv/Scripts/python.exe ]; then echo .venv/Scripts/python.exe; \
+	elif [ -x .venv/bin/python ]; then echo .venv/bin/python; \
+	else \
+		found=""; \
+		for c in python3 python; do \
+			if command -v $$c >/dev/null 2>&1 && $$c -c "import pytest" >/dev/null 2>&1; then found=$$c; break; fi; \
+		done; \
+		if [ -n "$$found" ]; then echo $$found; else echo PYTHON_MISSING; fi; \
+	fi)
+
+ifeq ($(PY),PYTHON_MISSING)
+$(error 未找到可用的 Python + pytest。请执行 make env（创建 .venv 并安装 dev 依赖），或确认 PATH 上的 python3 已装 pytest。)
+endif
 
 PYTEST := $(PY) -m pytest
 RUFF   := $(PY) -m ruff
+
 
 WEB_DIR    := web
 GEN_DIR    := web/src/gen
