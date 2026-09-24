@@ -9,6 +9,13 @@
 # （Q3/Q4/Q5 需要真实靶场、Q8 需要 24h）明确标注为"待对应迭代补齐"，
 # 而不是留一个假装通过的占位。
 #
+# 工具链统一由 .github/actions/setup 提供 —— 不要在 job 里手写 setup 步骤。
+# 历史教训（CI 首跑 + 二跑共三次失败）：
+#   · 某 job 漏装 web/ 前端依赖 → eslint: not found + 大量 TS2307
+#   · 某 job 完全没有 setup 步骤 → uv: command not found
+#   · curl 装 uv 会装到 ~/.local/bin，不在 runner 的 PATH 里
+# 集中 setup 让"漏一步"不可能发生。
+#
 # Q3/Q4/Q5 是三条红线（docs/04 §6）：任何一条失败，无论功能多重要，
 # 一律不得合并。它们目前没有 CI 覆盖 —— 这是 I0 的已知缺口，
 # 在 I2（Q3）/ I3（Q4、Q5）补齐。在此之前的合并依赖 make redline。
@@ -42,26 +49,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: ./.github/actions/setup
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+          with-uv: "true"
 
       - name: Install dependencies
         run: make env
@@ -89,23 +79,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: ./.github/actions/setup
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+          with-uv: "true"
 
       - name: Install dependencies
         run: make env
@@ -128,19 +104,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: ./.github/actions/setup
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+          with-uv: "true"
 
       - name: Install dependencies
         run: make env
@@ -155,19 +121,21 @@ jobs:
     name: security static checks
     runs-on: ubuntu-latest
     steps:
+      # 这个 job 首跑时漏了全部 setup 步骤（含 uv），第二次跑才暴露。
+      # 现在统一走 composite action，不会再漏。
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          with-uv: "true"
 
       - name: No-bypass scan (docs/10 §3 P3)
         run: bash scripts/check-no-bypass.sh
 
-      # 变异验证：确认扫描脚本真的能抓到违规，而不是永远返回 OK。
-      # 缺少这一条，一个永真的扫描脚本会让所有"门禁已通过"的结论失去依据。
+      # 变异验证：注入已知违规，确认扫描脚本真的报 FAIL 并退出非零。
+      # 缺这一条，一个永真的扫描脚本会让所有"门禁已通过"的结论失去依据
+      # （docs/10 §0「绿灯替代有效」）。
       - name: Mutation-verify the scanner
-        run: |
-          make env
-          # 不写死 .venv/bin/python —— Windows 上是 .venv/Scripts/python.exe。
-          # 由 Makefile 的 PYTHON 变量按平台选择。
-          make test-python PYTEST_ARGS="tests/test_security_scan.py -q"
+        run: make test-python PYTEST_ARGS="tests/test_security_scan.py -q"
 
       - name: Frontend credential check (Q12)
         run: bash scripts/check-frontend-credentials.sh
@@ -177,14 +145,14 @@ jobs:
 
       # docs/09 §10 第 9、10 项：交接文档与自检报告。
       # 检查 04 中已回填的迭代是否两份文档齐全 —— 缺一份即阻断。
-      # 为什么值得一个 job：交付物缺失（docs/10 §3 P10）最常见的
-      # 遗漏正是这两份文档，而代码在仓库里、文档"下次补"的承诺通常不会兑现。
+      # 交付物缺失（docs/10 §3 P10）最常见的遗漏正是它们，
+      # 而"下次补"的承诺通常不会兑现。
       - name: Iteration deliverables (docs/09 §10)
         run: bash scripts/check-iteration-docs.sh --all
 
       # docs/11 §5 裁决护栏（项目负责人 2026-09-24 确认 C + D）：
       # 治理模型按 08/09 执行，不接受按指令文档放宽。
-      # 这个裁决目前只有文档记录，没有代码强制 —— 本步骤把它可验证的部分固化。
+      # 该裁决目前只有文档记录，没有代码强制 —— 本步骤把它可验证的部分固化。
       - name: Governance guard (docs/11 §5)
         run: bash scripts/check-governance-guard.sh
 
@@ -196,18 +164,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+      - uses: ./.github/actions/setup
 
-      # make build 现在自带 web-build → env-web 依赖，
-      # 不需要（也不再允许）在这里手工 npm install ——
-      # 首跑就是漏装 web/ 依赖导致这个 job 失败的。
+      # make build 自带 web-build → env-web 依赖，会自动装 web/ 的前端依赖。
+      # 不在这里手写 npm install —— 首跑就是那么做的，结果漏装 web/ 依赖
+      # 导致整个 job 失败。
       - name: Build
         run: make build
 
@@ -222,15 +183,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: ./.github/actions/setup
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+          with-uv: "true"
 
       - name: Install dependencies
         run: make env

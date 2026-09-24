@@ -37,6 +37,15 @@ dev = [
     # 与 Go 侧 buf 生成物同源于 proto/aleth/v1/aletheia.proto（05 §0 C1）。
     # 替代方案：纯手写 protobuf 序列化（不采纳 —— 那等于绕开契约）。
     "grpcio-tools>=1.68,<2",
+
+    # PyYAML —— 解析 GitHub Actions workflow 与 roe.yaml。
+    # 用途：tests/test_ci_workflows.py 做 CI 结构化断言（比正则可靠：
+    #   正则会把注释里的 "uses: setup-go" 也当成真实步骤）；
+    #   tests/test_roe_schema.py 校验授权示例。
+    # 替代方案：纯正则（不采纳 —— workflow 是结构化数据，
+    #   用正则判"这个 job 有没有 setup 步骤"会误判）。
+    # 注：Go 侧解析 YAML 用 gopkg.in/yaml.v3，不与此处共享。
+    "pyyaml>=6.0,<7",
 ]
 
 [tool.uv]

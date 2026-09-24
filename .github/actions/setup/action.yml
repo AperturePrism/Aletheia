@@ -1,0 +1,42 @@
+# 统一的工具链 setup。
+#
+# 为什么抽成 composite action：CI 首跑与二跑的三次失败，全是
+# "某个 job 漏了某一步 setup"。逐 job 手写 setup 步骤的坏处是
+# 新增 job 时会漏 —— 而漏掉的那一步往往在另一个 job 里看起来很正常。
+#
+# 集中到一处后：装什么、装多久、按什么顺序，只有一个地方定义。
+#
+# 输入：
+#   with-uv: 是否需要 uv（跑 Python 测试/门禁的 job 才需要）
+name: setup toolchain
+description: 安装 Go / Node / Python，可选 uv
+
+inputs:
+  with-uv:
+    description: "是否安装 uv（false 则不装，省去不需要它的 job 的安装时间）"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version: "1.24"
+        cache: true
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        cache: npm
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    # uv 官方的 GitHub Action（astral-sh/setup-uv）。
+    # 不用 curl 安装脚本 —— 那种方式把 uv 装到 ~/.local/bin，
+    # 而该目录**不在** GitHub runner 的默认 PATH 里，
+    # 导致后续步骤报 `uv: command not found`（CI 二跑的真实失败原因）。
+    - if: inputs.with-uv == 'true'
+      uses: astral-sh/setup-uv@v6
