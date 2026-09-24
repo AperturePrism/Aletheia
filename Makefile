@@ -35,36 +35,25 @@ NPM      := npm
 UV       := uv
 GO       := go
 
-# Python 解释器解析。
+# ---- Python 解释器 ----
 #
-# 不要写死 .venv/bin/python —— 该路径只在 venv 建成后存在。CI 的
-# security-static job 只跑 pytest、不跑 make env，写死路径时它必然失败
-# （Error 127: .venv/bin/python: No such file or directory）。
+# 解析逻辑在 scripts/py.sh，不在 Makefile 内联。
 #
-# 但也不能无条件回退到 PATH 上的 python3：那台解释器没装 pytest，
-# 回退只会把 127 变成更隐密的 "No module named pytest"（五跑的真实失败）。
+# 这里曾连续犯三个设计错误（CI 四/五/六跑连败），全部记在 py.sh 头部，
+# 摘要：
+#   1. 写死 .venv/bin/python        -> venv 不存在时 Error 127
+#   2. 无条件回退 PATH 上的 python3 -> 回退到没装 pytest 的解释器，
+#      把 127 换成更隐密的 No module named pytest
+#   3. 加 $(error) 守卫             -> 所有 job 全挂
 #
-# 因此规则是：
-#   1. 有 .venv  -> 用它（Windows 与 Linux 两种布局都覆盖）
-#   2. 无 .venv  -> 找 PATH 上**验证过 pytest 可用**的 python3 / python
-#   3. 都不可用   -> 直接报错并提示 make env，不静默降级
+# 错误 3 的根因是 Make 的硬约束：`PY = $(shell ...)` 在**解析时**求值，
+# 而 make env（创建 .venv）发生在 **recipe 执行时**。
+# 顺序错了 —— 解析时 .venv 还没建，PY 已被判为不可用。
+# **$(shell) 的结果不能依赖任何 recipe 的副作用。**
 #
-# 第 3 条的理由：静默降级到跑不起来的解释器，比明确失败危险得多 ——
-# docs/10 §0 把"让没查伪装成没问题"列为自检最典型的失真。
-PY = $(shell \
-	if [ -x .venv/Scripts/python.exe ]; then echo .venv/Scripts/python.exe; \
-	elif [ -x .venv/bin/python ]; then echo .venv/bin/python; \
-	else \
-		found=""; \
-		for c in python3 python; do \
-			if command -v $$c >/dev/null 2>&1 && $$c -c "import pytest" >/dev/null 2>&1; then found=$$c; break; fi; \
-		done; \
-		if [ -n "$$found" ]; then echo $$found; else echo PYTHON_MISSING; fi; \
-	fi)
-
-ifeq ($(PY),PYTHON_MISSING)
-$(error 未找到可用的 Python + pytest。请执行 make env（创建 .venv 并安装 dev 依赖），或确认 PATH 上的 python3 已装 pytest。)
-endif
+# 正解：解析延到 recipe 内（那时 env 已就绪），
+# 且 venv 缺失时自动创建而非报错 —— 需要 Python 的目标本来就需要 dev 依赖。
+PY := bash scripts/py.sh
 
 PYTEST := $(PY) -m pytest
 RUFF   := $(PY) -m ruff
