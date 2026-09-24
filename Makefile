@@ -121,7 +121,12 @@ check-gen-fresh: ## Q14：生成物必须与契约一致（CI 用）
 build: web-build go-build ## 完整构建（含嵌入 WebUI）
 
 .PHONY: web-build
-web-build: ## 构建 WebUI 产物（嵌入 Go 二进制用）
+# 依赖 env-web 而不是让调用方自己记得先 npm install。
+# 这个依赖是踩过坑才加的：CI 首跑时 Q11 与 lint 两个 job 在 make build 前
+# 只跑了根目录的 npm install（装的是 buf），漏了 web/ 的前端依赖，
+# 结果 eslint: not found + 大量 TS2307。
+# 把依赖写在这里，"忘了装"就不可能发生。
+web-build: env-web ## 构建 WebUI 产物（嵌入 Go 二进制用）
 	@echo "== WebUI build =="
 	cd $(WEB_DIR) && $(NPM) run build
 

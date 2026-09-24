@@ -165,9 +165,9 @@ jobs:
       - name: Mutation-verify the scanner
         run: |
           make env
-          # 不用写死的 .venv/bin/python —— Windows 上是 .venv/Scripts/python.exe。
-          # 交给 Makefile 的 PYTHON 变量按平台选择（它在 CI 的 ubuntu 上解析为正确路径）。
-          make test-python ARGS="tests/test_security_scan.py -q"
+          # 不写死 .venv/bin/python —— Windows 上是 .venv/Scripts/python.exe。
+          # 由 Makefile 的 PYTHON 变量按平台选择。
+          make test-python PYTEST_ARGS="tests/test_security_scan.py -q"
 
       - name: Frontend credential check (Q12)
         run: bash scripts/check-frontend-credentials.sh
@@ -205,10 +205,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      # make build 现在自带 web-build → env-web 依赖，
+      # 不需要（也不再允许）在这里手工 npm install ——
+      # 首跑就是漏装 web/ 依赖导致这个 job 失败的。
       - name: Build
-        run: |
-          npm install
-          make build
+        run: make build
 
       - name: Q11 smoke test
         run: make verify-embed

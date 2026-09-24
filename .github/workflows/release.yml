@@ -145,9 +145,8 @@ jobs:
           cache: npm
 
       - name: Build WebUI
-        run: |
-          npm install
-          make web-build
+        # make web-build 自带 env-web 依赖（会 npm install web/ 的依赖）。
+        run: make web-build
 
       - name: Build binaries for ${{ matrix.goos }}/${{ matrix.goarch }}
         env:
