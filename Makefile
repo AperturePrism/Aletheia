@@ -35,16 +35,23 @@ NPM      := npm
 UV       := uv
 GO       := go
 
-PYTHON   := .venv/Scripts/python.exe
-ifeq ($(OS),Windows_NT)
-	# Git Bash 下 .venv/Scripts/python.exe；MSYS 也认这个路径。
-	PYTEST := $(PYTHON) -m pytest
-	RUFF   := $(PYTHON) -m ruff
-else
-	PYTHON := .venv/bin/python
-	PYTEST := $(PYTHON) -m pytest
-	RUFF   := $(PYTHON) -m ruff
-endif
+# Python 解释器解析。
+#
+# 不要写死 .venv/bin/python —— 那个路径只在 venv 已创建时才存在。
+# CI 的 security-static job 只跑 pytest、不跑 make env，
+# 于是 . venv 不存在 → Error 127: .venv/bin/python: No such file or directory。
+#
+# 因此按优先级解析：
+#   1. 仓库 .venv（Windows/MSYS 与 Linux 两种布局都覆盖）
+#   2. PATH 上的 python3（CI 的 setup-python 已装好）
+# 这样"venv 未创建"不会让目标变成命令找不到，而是退化到可用解释器。
+#
+# 用 = 而非 := —— 延迟到调用时才求值；make env 建好 venv 后，
+# 同一进程内的后续目标也能看到它。
+PY = $(shell 	if [ -x .venv/Scripts/python.exe ]; then echo .venv/Scripts/python.exe; 	elif [ -x .venv/bin/python ]; then echo .venv/bin/python; 	elif command -v python3 >/dev/null 2>&1; then echo python3; 	else echo python; fi)
+
+PYTEST := $(PY) -m pytest
+RUFF   := $(PY) -m ruff
 
 WEB_DIR    := web
 GEN_DIR    := web/src/gen
