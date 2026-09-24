@@ -49,6 +49,36 @@
 - Q3/Q4/Q5 三条红线无 CI 覆盖（需真实靶场，按 `04` 时间表在 I2/I3 补齐）
 - Go race 检测在无 C 编译器的开发机上不可用（`GO_TEST_RACE=1` 显式启用；CI 的 ubuntu-latest 会自动启用）
 
+### 指令文档冲突裁决（2026-09-24，按 C + D 处置）
+
+项目负责人裁定 **C + D**：治理模型按 `08`/`09` 执行，方法论按 D1–D8 计划吸收，
+指令文档降级为参考。账号池 / CPA / 临时邮 / 2captcha 等个人基建段落原样保留、不处置。
+
+**Added**
+- `docs/11-指令文档与冻结架构冲突分析.md` —— 4 处 P0 冲突的逐条分析、
+  8 处实质一致的对照表、D1–D8 吸收计划登记表，以及裁决记录（§5）
+- 两份指令文档入库（`docs/instruction.ctf.md`、`docs/Dev-optimized-ai-digao.md`），
+  头部加「方法论参考」状态横幅 —— 只加声明，**未修改其内容**
+- `scripts/check-governance-guard.sh` —— 治理模型护栏。把裁决中可用代码验证的
+  4 条固化为检查：裁决文档状态、指令文档横幅、`alethd` 保留无凭证不启动、
+  默认监听仍为回环、无「临时批准越界」入口。**已变异验证**：移除横幅 →
+  FAIL；把 `authPath == ""` 改为 `false` → FAIL
+- 明确标注 2 项本脚本**无法**检查（报告合规声明 / scope 不可热改），
+  不建永真假检查（`docs/10` §0 硬要求 3）
+
+**Changed**
+- `docs/README.md` §2 清单、§3 唯一真源映射、§6 演进记录同步登记
+- `Makefile` 新增 `check-governance-guard` 目标并接入 `gate`
+- CI `security-static` job 增加一步，确保 remote 侧同样强制
+
+**Fixed**
+- `pyproject.toml` 的 ruff 配置：`docs/**/*.md` 加入 exclude。
+  根因：**ruff 会把 markdown 里的 ```python 代码块当作源文件 scan + format** ——
+  这会重排冻结设计文档（`07`/`08`/`11`）与两份指令参考文档中的示例片段。
+  已在 25 个 md 文件上生效，排除后仅 10 个真实 `.py` 参与检查
+
+---
+
 ### 协作机制（2026-09-24，I0 之后追加）
 
 **Changed**

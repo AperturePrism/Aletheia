@@ -65,6 +65,12 @@ exclude = [
     "node_modules",
     "web/dist",
     "bin",
+    # ruff 会把 markdown 里的 ```python 代码块也当作源文件 scan/format。
+    # 本项目 docs/ 下的 .md 是**设计文档**，其中的代码块是示例片段
+    # （含故意省略的 "# ..."、非完整类、跨语言混排），不是可运行源码。
+    # 让 ruff format 重排它们 = 修改冻结文档的内容，且改不出正确性收益。
+    # 指令类文档尤其如此：docs/11 §5 裁定 C + D，两份指令文档原样保留。
+    "docs/**/*.md",
 ]
 
 [tool.ruff.lint]

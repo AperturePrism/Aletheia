@@ -180,6 +180,12 @@ jobs:
       - name: Iteration deliverables (docs/09 §10)
         run: bash scripts/check-iteration-docs.sh --all
 
+      # docs/11 §5 裁决护栏（项目负责人 2026-09-24 确认 C + D）：
+      # 治理模型按 08/09 执行，不接受按指令文档放宽。
+      # 这个裁决目前只有文档记录，没有代码强制 —— 本步骤把它可验证的部分固化。
+      - name: Governance guard (docs/11 §5)
+        run: bash scripts/check-governance-guard.sh
+
   # ==========================================================================
   # Job 5: WebUI 嵌入冒烟（Q11）
   # ==========================================================================
