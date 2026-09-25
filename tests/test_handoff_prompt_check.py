@@ -163,3 +163,33 @@ def test_fails_on_nonexistent_tag(tmp_path: Path) -> None:
         assert "FAIL" in result.stdout
     finally:
         DOC.write_text(original, encoding="utf-8")
+
+
+def test_shallow_clone_degrades_to_note(tmp_path: Path) -> None:
+    """shallow clone（CI checkout 的默认形态）→ HEAD/tag 校验降级为 note，exit 0。
+
+    main 上 run 36099750588 的真实失败：actions/checkout 默认 fetch-depth=1
+    且不 fetch tags，文档引用的 commit/tag 在 runner 上"不存在"，被误判为
+    文档错误（FAIL）。修复后脚本以**环境信号**降级 —— 本测试锁定该行为，
+    防止降级逻辑被静默删除（删掉它，CI 会再次把环境问题误报成文档错误）。
+    降级不是永真化：完整 clone（本地 / 修复后的 CI）仍走严格路径，
+    由 test_fails_on_nonexistent_commit 等测试锁定。
+    """
+    clone_dir = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", "--no-tags",  # noqa: S607
+         REPO_ROOT.as_uri(), str(clone_dir)],
+        capture_output=True, text=True, check=True, timeout=180,
+    )
+    # 复制**当前工作区**的脚本 —— clone 里是已提交版本，可能落后于本次修复。
+    shutil.copy2(SCRIPT, clone_dir / "scripts" / "check-handoff-prompt.sh")
+    result = subprocess.run(
+        ["bash", str(clone_dir / "scripts" / "check-handoff-prompt.sh")],  # noqa: S607
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=clone_dir, check=False, timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"shallow 环境应降级为 note 而非 FAIL（exit {result.returncode}）。\n{result.stdout}"
+    )
+    assert "note" in result.stdout, f"应输出 note 降级声明：\n{result.stdout}"
+    assert "FAIL" not in result.stdout, f"shallow 环境不得出现 FAIL：\n{result.stdout}"
