@@ -196,6 +196,8 @@ func Default() *Config {
 			Addr: DefaultListenAddr,
 			Port: DefaultListenPort,
 		},
+		// EvidenceDir 留空：由 DefaultFilePaths() 基于 DataDir 派生
+		//（data_dir/evidence，05 §2.1 RawOutputRef.storage_uri）。
 		Storage:       StorageConfig{DataDir: DefaultDataDirName},
 		Authorization: AuthorizationConfig{},
 		PrivacyGateway: PrivacyGatewayConfig{
@@ -335,6 +337,9 @@ func (c *Config) validateServer() error {
 func (c *Config) validateStorage() error {
 	if strings.TrimSpace(c.Storage.DataDir) == "" {
 		return errors.New("config: storage.data_dir is empty")
+	}
+	if strings.TrimSpace(c.Storage.EvidenceDir) == "" {
+		return errors.New("config: storage.evidence_dir is empty (raw tool output storage)")
 	}
 	if err := validateRetention(c.DataHandling.RetentionDays); err != nil {
 		return err

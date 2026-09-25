@@ -32,6 +32,10 @@ import (
 	"github.com/AperturePrism/aleth/core/api/server"
 	"github.com/AperturePrism/aleth/core/checkpoint"
 	"github.com/AperturePrism/aleth/core/config"
+	"github.com/AperturePrism/aleth/core/ingest"
+	"github.com/AperturePrism/aleth/core/ingest/httpx"
+	"github.com/AperturePrism/aleth/core/ingest/nmap"
+	"github.com/AperturePrism/aleth/core/ingest/nuclei"
 	"github.com/AperturePrism/aleth/core/log"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -198,11 +202,34 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 		return errRuntime{err: err}
 	}
 
+	// 原始工具输出的内容寻址存储（05 §2.1 RawOutputRef）。
+	// 失败即拒绝启动（fail-closed）：证据存不进去的摄入层不能上线。
+	rawStore, err := ingest.NewRawStore(cfg.Storage.EvidenceDir)
+	if err != nil {
+		logger.Error("cannot init evidence store", zapErr(err))
+		return errRuntime{err: err}
+	}
+
 	// ---- 第 7 步：gRPC 服务 ------------------------------------------------
 	//
 	// I0 只装配"空实现"（05 的服务接口全部存在，能力均为 UNIMPLEMENTED）。
 	// 真实能力在后续迭代逐个替换（见 04 §4）。
 	registry := server.NewRegistry()
+
+	// I1（04 §4）：IngestService 的 unimplementedIngest 在此替换为真实实现。
+	// Scope / Gateway / Sandbox 三个执行前置依赖在 I3 交付 —— 未装配期间
+	// Execute 显式返回 UPSTREAM_UNAVAILABLE（fail-closed，绝不绕过校验执行），
+	// ListAdapters / ValidateTool 已可用。
+	ingestCatalog, err := ingest.NewCatalog(
+		nmap.NewAdapter(), httpx.NewAdapter(), nuclei.NewAdapter())
+	if err != nil {
+		logger.Error("cannot assemble tool adapters", zapErr(err))
+		return errRuntime{err: err}
+	}
+	registry.Ingest = ingest.NewService(ingestCatalog, ingest.Deps{}, rawStore)
+	logger.Info("ingest service wired",
+		zap.Strings("adapters", ingestCatalog.Names()),
+		zap.Strings("pending_deps", []string{"scope(I3)", "gateway(I3)", "sandbox(I3)"}))
 
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
