@@ -231,11 +231,30 @@ jobs:
       - name: Install dependencies
         run: make env
 
-      # I0 阶段解析器尚未存在（I1 交付），因此覆盖率门禁暂不阻断。
-      # I1 起改为 continue-on-error: false，并确认阈值 90% 生效。
+      # I1 已交付解析器（覆盖率 92.2%），Q2 自此阻断：
+      # scripts/coverage-go.sh 的 90% 阈值（排除 testutil）。
       - name: Coverage (Q2)
-        continue-on-error: true
         run: make coverage
+
+  redline:
+    name: redline (Q3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: ./.github/actions/setup
+        with:
+          with-uv: "true"
+
+      - name: Install dependencies
+        run: make env
+
+      # Q3 红线（docs/04 §6）：伪造证据注入 100% 被拒 —— I2 交付。
+      # 红线测试不可抽样、不可跳过（pytest -m redline，tests/redline/）。
+      - name: Forged-evidence injection (Q3)
+        run: make redline
 
 # ============================================================================
 # 尚未自动化的门禁（docs/04 §6）—— 明确记录，不用假通过掩盖
@@ -243,7 +262,7 @@ jobs:
 #
 # | 门禁 | 内容                             | 补齐迭代 |
 # |------|----------------------------------|----------|
-# | Q3   | 伪造证据注入 100% 被拒           | I2       |
+# | ~~Q3~~ | 伪造证据注入 100% 被拒 —— ✅ I2 已交付（tests/redline/，上方 redline job） |
 # | Q4   | 越界 100% fail-closed            | I3       |
 # | Q5   | 抓包零真实值泄漏                  | I3       |
 # | Q6   | 确定性（字节级一致）              | I1       |
