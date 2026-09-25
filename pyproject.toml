@@ -183,6 +183,11 @@ markers = [
 [tool.coverage.run]
 source = ["aletheia"]
 branch = true
+# 生成代码不计入手写逻辑的覆盖率（Q2 口径 = 手写包）：
+# agents/src/aletheia/gen/ 由 make proto 生成（Go 侧对应物 core/api 也是
+# 生成物，本就不在 Go 覆盖率统计内）。gen/ 数千行无测试命中会把分母
+# 撑爆 —— I2 收紧 CI coverage 阻断后真实暴露。
+omit = ["*/aletheia/gen/*", "*/gen/aleth/*"]
 
 [tool.coverage.report]
 fail_under = 90
