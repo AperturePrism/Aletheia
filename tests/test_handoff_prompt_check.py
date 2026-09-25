@@ -176,15 +176,15 @@ def test_shallow_clone_degrades_to_note(tmp_path: Path) -> None:
     由 test_fails_on_nonexistent_commit 等测试锁定。
     """
     clone_dir = tmp_path / "shallow"
-    subprocess.run(
-        ["git", "clone", "--quiet", "--depth", "1", "--no-tags",  # noqa: S603, S607
+    subprocess.run(  # noqa: S603
+        ["git", "clone", "--quiet", "--depth", "1", "--no-tags",  # noqa: S607
          REPO_ROOT.as_uri(), str(clone_dir)],
         capture_output=True, text=True, check=True, timeout=180,
     )
     # 复制**当前工作区**的脚本 —— clone 里是已提交版本，可能落后于本次修复。
     shutil.copy2(SCRIPT, clone_dir / "scripts" / "check-handoff-prompt.sh")
-    result = subprocess.run(
-        ["bash", str(clone_dir / "scripts" / "check-handoff-prompt.sh")],  # noqa: S603, S607
+    result = subprocess.run(  # noqa: S603
+        ["bash", str(clone_dir / "scripts" / "check-handoff-prompt.sh")],  # noqa: S607
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         cwd=clone_dir, check=False, timeout=60,
     )
