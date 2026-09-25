@@ -18,7 +18,7 @@
 你将接手 **Aletheia** 的开发工作。这是一个以「可证明性」为第一原则的自主渗透测试系统：
 结论必须由证据显现，不可由模型声称。
 
-**仓库**：`github.com/AperturePrism/Aletheia`（当前 HEAD：`238f173`，最新 tag：`v0.1.0`）
+**仓库**：`github.com/AperturePrism/Aletheia`（当前 HEAD：`d90590e`，最新 tag：`v0.1.0`）
 **技术栈**：Go（L0 + 横切 + CLI + daemon）/ Python（L1–L4 + Agent）/ React + TS（WebUI）
 
 ---
@@ -45,18 +45,18 @@
 
 ## 二、当前状态
 
-- **I1 · M1 光谱摄入 —— 已完成**（nmap / httpx / nuclei 三个参数化适配器 +
-  确定性解析器 + 无损折叠；IngestService 已接线；解析器覆盖率 92.2%；
-  `make gate` 全绿）。I0 的 `v0.1.0` 之后尚未打新 tag（tag 随发布流程统一处理）。
-- **能力边界仍然成立**：L0 的 `Execute` 已实现 05 §7.1 全链路，但
-  Scope/Gateway/Sandbox 三依赖在 I3 交付 —— 未装配期间 Execute 显式返回
-  `UPSTREAM_UNAVAILABLE`（fail-closed），**这不是故障**。
-  `ListAdapters` / `ValidateTool` 已真实可用；其余 9 个服务仍显式 `UNIMPLEMENTED`。
-- **下一步是 I2 · M4 证据账本与四道闸门**（`04` 称之为全项目最重要的一次迭代）：
-  Evidence Ledger（append-only）、四道闸门、伪造证据注入 100% 被拒（Q3 补 CI）。
-  开工前先读 `docs/iterations/I1-交接.md` 第 8 节，
-  它给出了 I2 的对接面（RawOutputRef 同构、exec_id 桩路径、pytest determinism 恢复点）
-  与具体第一步。
+- **I2 · M4 证据账本与四道闸门 —— 已完成**：Evidence Ledger（append-only +
+  哈希链 + 篡改检测）、G-1 Ed25519 独立验签（append 路径强制无旁路）、
+  G-2/G-3 闸门、Finding 状态机（CONFIRMED→CANDIDATE 不可逆）、归因双向校验
+  （张冠李戴 → P0 告警 + 回滚）、幻觉双熔断。**Q3 红线已进 CI**（redline job）。
+  前端交付页面 4 证据链视图（三核心视图之一）。
+- **能力边界**：L3 的 G-4 独立复现与 Termination Arbiter 属 I7（显式 pending，
+  CONFIRMED 在 I2 不可达 —— 设计而非缺失）；exec_id 签发方（Sandbox）属 I3，
+  I2 的验签公钥由配置注入。
+- **下一步是 I3 · M6 范围内核与隐私网关**：Scope Kernel 三重校验（Q4）、
+  Privacy Gateway（Q5）、Sandbox（真实 exec_id 签发，替换 I2 测试公钥并
+  复验归因链路）。开工前先读 `docs/iterations/I2-交接.md` 第 7 节
+  （对接点：focalplane 验签公钥、`core/ingest/service.go` 的 Deps）。
 
 ---
 
