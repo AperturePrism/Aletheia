@@ -45,18 +45,17 @@
 
 ## 二、当前状态
 
-- **I2 · M4 证据账本与四道闸门 —— 已完成**：Evidence Ledger（append-only +
-  哈希链 + 篡改检测）、G-1 Ed25519 独立验签（append 路径强制无旁路）、
-  G-2/G-3 闸门、Finding 状态机（CONFIRMED→CANDIDATE 不可逆）、归因双向校验
-  （张冠李戴 → P0 告警 + 回滚）、幻觉双熔断。**Q3 红线已进 CI**（redline job）。
-  前端交付页面 4 证据链视图（三核心视图之一）。
-- **能力边界**：L3 的 G-4 独立复现与 Termination Arbiter 属 I7（显式 pending，
-  CONFIRMED 在 I2 不可达 —— 设计而非缺失）；exec_id 签发方（Sandbox）属 I3，
-  I2 的验签公钥由配置注入。
-- **下一步是 I3 · M6 范围内核与隐私网关**：Scope Kernel 三重校验（Q4）、
-  Privacy Gateway（Q5）、Sandbox（真实 exec_id 签发，替换 I2 测试公钥并
-  复验归因链路）。开工前先读 `docs/iterations/I2-交接.md` 第 7 节
-  （对接点：focalplane 验签公钥、`core/ingest/service.go` 的 Deps）。
+- **I1–I3 能力迭代全部完成并发布**（v0.2.0 光谱摄入 / v0.3.0 证据账本与
+  Q3 红线 / v0.4.0 范围内核与隐私网关），main CI 7 job 全绿。
+- **⚠️ P0 阶段门禁尚未整体通过**：Q5 靶场抓包（docker 未装）、Q8 24h
+  稳定性（harness 未实现）均未执行 —— 门禁五条中仅 Q3（I2）与 Q4（I3）
+  已进 CI。
+- **⚠️ P0 收口的三项决策请求待项目负责人裁定**（contract 794f135 复核 /
+  Q5 靶场验证补齐方式 / P0→P1 推进节奏）：见
+  `docs/decisions/DEC-2026-09-25-p0-transition.md`（状态 PENDING）。
+- **I4（M2 心智地图）暂未开工** —— 按 R10 等待 DEC-3 裁定；
+  预备材料见 `docs/iterations/I3-交接.md` 第 5 节。
+- **I2 遗留**：contract 794f135 双人 review 第二人待签（见 DEC-1）。
 
 ---
 
