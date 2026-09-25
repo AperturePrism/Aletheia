@@ -5,6 +5,7 @@ import { AppLayout } from "./components/AppLayout";
 import { SessionOverviewPage } from "./views/session/SessionOverviewPage";
 import { LiveExecutionPage } from "./views/live/LiveExecutionPage";
 import { NotImplementedPage } from "./views/NotImplementedPage";
+import { ScopeAuthorizationPage } from "./views/scope/ScopeAuthorizationPage";
 import { EvidenceChainPage } from "./views/evidence/EvidenceChainPage";
 import "./styles/app.css";
 
@@ -67,10 +68,7 @@ const router = createBrowserRouter([
       // 注意：授权凭证录入走 CLI 而非 WebUI（docs/06 §3.3「不做首次配置向导」/
       // docs/04 I3「授权凭证录入走 CLI 而非 WebUI」）。此页面只展示
       // scope 与越界拦截审计视图。
-      {
-        path: "scope",
-        element: <NotImplementedPage pageName="范围与授权管理" iteration="I3" module="M6" />,
-      },
+      { path: "scope", element: <ScopeAuthorizationPage /> },
 
       // 06 §6.1 页面 10 · 成本与预算面板 —— I6
       {
