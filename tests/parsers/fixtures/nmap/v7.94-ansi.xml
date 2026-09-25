@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 来源：nmap 7.94 -oX - 的输出流被 TTY 着色污染（M1 §4.3 翻车点 2）。
+     @ESC@ 是占位符：测试加载时替换为真实 ESC 字节（0x1B）。
+     原始 ESC 字节对 XML 是非法字符 —— 统一清洗管道必须在解析前把它移除，
+     这正是该样本要验证的行为。 -->
+<nmaprun scanner="nmap" args="nmap -oX - 192.0.2.20" start="1769328000" version="7.94" xmloutputversion="1.05">
+<host starttime="1769328001" endtime="1769328002">
+<status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="192.0.2.20" addrtype="ipv4"/>
+<ports>
+<port protocol="tcp" portid="8080">
+<state state="open" reason="syn-ack" reason_ttl="64"/>
+<service name="@ESC@[45mhttp@ESC@[0m" product="Tomcat" version="9.0.83" method="probed" conf="10"/>
+</port>
+</ports>
+</host>
+</nmaprun>

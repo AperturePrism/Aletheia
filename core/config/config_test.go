@@ -62,6 +62,7 @@ func TestNonLoopbackWithTLSPasses(t *testing.T) {
 	c.Server.Addr = "0.0.0.0"
 	c.Server.TLSCertFile = cert
 	c.Server.TLSKeyFile = key
+	c.DefaultFilePaths() // 与 alethd 启动顺序一致：先派生路径再 Validate
 
 	if err := c.Validate(); err != nil {
 		t.Errorf("non-loopback with TLS certs should validate: %v", err)

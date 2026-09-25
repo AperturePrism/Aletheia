@@ -1,0 +1,5 @@
+{"timestamp":"2026-09-25T00:00:00Z","url":"http://scanme.test:80","input":"scanme.test","method":"GET","failed":false,"status_code":200,"content_length":512,"title":"Example Domain","webserver":"nginx","tech":["nginx"],"port":"80","scheme":"http","a":["192.0.2.10"],"cname":[],"cdn":false,"response_time":"0.15s"}
+{"timestamp":"2026-09-25T00:00:01Z","url":"https://scanme.test:443","input":"scanme.test:443","method":"GET","failed":false,"status_code":301,"content_length":0,"title":"","webserver":"nginx","tech":["nginx"],"port":"443","scheme":"https","a":["192.0.2.10"],"cname":[],"cdn":false,"response_time":"0.12s"}
+{"timestamp":"2026-09-25T00:00:02Z","url":"http://down.test:80","input":"down.test","failed":true,"response_time":"5.00s"}
+{"timestamp":"2026-09-25T00:00:03Z","url":"http://notjson.test","input":"notjson.test","failed":false,"status_code":200,"title":"Truncated @ESC@[31mPage@ESC@[0m"}
+this line is deliberately not json
