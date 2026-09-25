@@ -19,7 +19,6 @@ from __future__ import annotations
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
-    Ed25519PublicKey,
 )
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
@@ -66,7 +65,9 @@ def attacker_key() -> Ed25519PrivateKey:
     return Ed25519PrivateKey.generate()
 
 
-def attack_signature(priv: Ed25519PrivateKey, exec_id: str, *, raw: bool = False) -> pb.SignedExecId:
+def attack_signature(
+    priv: Ed25519PrivateKey, exec_id: str, *, raw: bool = False
+) -> pb.SignedExecId:
     s = pb.SignedExecId()
     s.exec_id = exec_id
     payload = exec_id.encode("utf-8") if raw else exec_id_sign_input(exec_id)
@@ -121,9 +122,7 @@ class TestCategory2ForgedSignature:
         "forge_mode",
         ["attacker_signed", "wrong_domain", "cross_id", "corrupted", "garbled_hex"],
     )
-    def test_100pct_rejected(
-        self, tmp_path, sandbox_keypair, attacker_key, forge_mode
-    ) -> None:
+    def test_100pct_rejected(self, tmp_path, sandbox_keypair, attacker_key, forge_mode) -> None:
         """五种伪造形态全部被拒 —— 无一进入账本。"""
         _, pub_hex = sandbox_keypair
         ledger = Ledger(str(tmp_path / "l.db"), Ed25519Verifier(pub_hex))
@@ -134,7 +133,9 @@ class TestCategory2ForgedSignature:
         elif forge_mode == "wrong_domain":
             # 签名有效但来自「裸 exec_id」域 —— 域分离必须生效。
             attacker = attacker_key
-            sig = attack_signature(sandbox_keypair[0], "exec_forged_1", raw=True)  # 用 Sandbox 私钥签裸域
+            sig = attack_signature(
+                sandbox_keypair[0], "exec_forged_1", raw=True
+            )  # 用 Sandbox 私钥签裸域
             _ = attacker
         elif forge_mode == "cross_id":
             # Sandbox 私钥签的是另一个 exec_id。
@@ -198,7 +199,7 @@ class TestCategory3Misattribution:
         """逐次换 target 的张冠李戴，每一次都必须被拒 —— 无漏网。"""
         priv, pub_hex = sandbox_keypair
         ledger = Ledger(str(tmp_path / "l.db"), Ed25519Verifier(pub_hex))
-        plane = FocalPlane(ledger, on_p0_alert=lambda a: None)
+        plane = FocalPlane(ledger, on_p0_alert=lambda _a: None)
         entry = make_entry(exec_id="exec_misattr")
         plane.append_evidence(entry, attack_signature(priv, "exec_misattr"))
         plane.validate_assertion(assertion("svc_A", [entry.evidence_id]), "s", "t", "a")

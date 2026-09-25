@@ -292,7 +292,7 @@ dev: ## 并行启动 alethd 与 vite dev server（开发用）
 .PHONY: gate
 gate: build test lint check-gen-fresh check-frontend-credentials check-loopback check-no-bypass check-iteration-docs check-governance-guard check-handoff-prompt ## 全部门禁（Q1/Q7/Q10–Q14 + P3 + 交付物 + 治理护栏 + 接手 Prompt 时效）
 	@echo ""
-	@echo "全部门禁通过。（注意：Q3/Q4/Q5/Q6/Q8/Q9 见 .github/workflows/ci.yml 末尾的补齐计划）"
+	@echo "全部门禁通过。（注意：Q4/Q5/Q6/Q8/Q9（Q3 已于 I2 交付） 见 .github/workflows/ci.yml 末尾的补齐计划）"
 
 # ============================================================================
 # 清理
