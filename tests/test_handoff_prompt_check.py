@@ -177,13 +177,13 @@ def test_shallow_clone_degrades_to_note(tmp_path: Path) -> None:
     """
     clone_dir = tmp_path / "shallow"
     subprocess.run(  # noqa: S603
-        [
+        [  # noqa: S607
             "git",
             "clone",
             "--quiet",
             "--depth",
             "1",
-            "--no-tags",  # noqa: S607
+            "--no-tags",
             REPO_ROOT.as_uri(),
             str(clone_dir),
         ],
@@ -195,7 +195,10 @@ def test_shallow_clone_degrades_to_note(tmp_path: Path) -> None:
     # 复制**当前工作区**的脚本 —— clone 里是已提交版本，可能落后于本次修复。
     shutil.copy2(SCRIPT, clone_dir / "scripts" / "check-handoff-prompt.sh")
     result = subprocess.run(  # noqa: S603
-        ["bash", str(clone_dir / "scripts" / "check-handoff-prompt.sh")],  # noqa: S607
+        [  # noqa: S607
+            "bash",
+            str(clone_dir / "scripts" / "check-handoff-prompt.sh"),
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",
