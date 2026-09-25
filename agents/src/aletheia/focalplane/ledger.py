@@ -37,6 +37,7 @@ from datetime import UTC, datetime
 
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from aletheia.focalplane.execverifier import ExecVerifier
 from aletheia.gen.aleth.v1 import aletheia_pb2 as pb
 
 # 哈希域分隔符：算法/用途/版本绑定，防止跨域重放（"same bytes, other meaning"）。
@@ -55,6 +56,13 @@ class InvalidEvidenceError(LedgerError):
 
 class DuplicateEvidenceError(LedgerError):
     """同 evidence_id 已存在且内容不同 —— 伪造或 ID 碰撞，必须显式失败。"""
+
+
+class ExecBindingError(LedgerError):
+    """G-1 执行绑定失败（M4 §4.2）：签名缺失/不匹配/无效。
+
+    语义：该证据视为「自言自语」（D2）—— 不入账本；调用方应上报幻觉计数。
+    """
 
 
 @dataclass(frozen=True)
@@ -100,11 +108,16 @@ def compute_self_hash(entry: pb.EvidenceEntry, prev_hash: str) -> str:
 class Ledger:
     """Evidence Ledger（append-only）。一个实例对应一个账本文件。
 
+    G-1 执行绑定（M4 §4.2）：``exec_verifier`` 是**必需**的构造参数 ——
+    不存在不验签的账本实例，因此不存在绕过 G-1 的入库路径。
+    verifier 只持 Sandbox 公钥（07 §T4.1：私钥不出 Sandbox 进程）。
+
     线程模型：gRPC server 的线程池可能并发调用 —— append 以实例锁串行，
     保证 prev_hash 链的原子推进。读操作走同一连接（SQLite 串行模式）。
     """
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str, exec_verifier: ExecVerifier) -> None:
+        self._verifier = exec_verifier
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -149,17 +162,41 @@ class Ledger:
     # append（唯一的写路径）
     # ------------------------------------------------------------------
 
-    def append(self, entry: pb.EvidenceEntry, *, idempotent: bool = False) -> AppendReceipt:
-        """追加一条证据并推进哈希链。
+    def append(
+        self,
+        entry: pb.EvidenceEntry,
+        signed_exec_id: pb.SignedExecId,
+        *,
+        idempotent: bool = False,
+    ) -> AppendReceipt:
+        """追加一条证据并推进哈希链。G-1 验签失败 → :class:`ExecBindingError`。
 
         幂等语义（proto [derived] 注释）：``idempotent=True`` 且同 evidence_id
         已存在时返回**既有**记录，不重复追加；同 ID 但内容不同 →
         :class:`DuplicateEvidenceError`（伪造检测，T4.1/T4.3 的组合变体）。
         """
         with self._lock:
-            return self._append_locked(entry, idempotent=idempotent)
+            return self._append_locked(entry, signed_exec_id, idempotent=idempotent)
 
-    def _append_locked(self, entry: pb.EvidenceEntry, *, idempotent: bool) -> AppendReceipt:
+    def _append_locked(
+        self, entry: pb.EvidenceEntry, signed_exec_id: pb.SignedExecId, *, idempotent: bool
+    ) -> AppendReceipt:
+        # ---- G-1 执行绑定（先于一切校验与 I/O；M4 §4.2）----
+        # 不信任调用方传入的 exec_id 字段：verdict 只由公钥验证结果决定。
+        if signed_exec_id is None or not signed_exec_id.exec_id:
+            raise ExecBindingError(
+                "G-1: signed_exec_id missing; evidence without a Sandbox signature "
+                "is treated as hallucination (D2 自言自语)"
+            )
+        if signed_exec_id.exec_id != entry.exec_id:
+            raise ExecBindingError(
+                "G-1: signed_exec_id does not match entry.exec_id "
+                f"({signed_exec_id.exec_id!r} != {entry.exec_id!r})"
+            )
+        verdict = self._verifier.verify(entry.exec_id, signed_exec_id.signature)
+        if not verdict.passed:
+            raise ExecBindingError(f"G-1: {verdict.reason}")
+
         # append **不修改调用方对象**：所有赋值针对内部克隆。
         # 这让「同一条证据重放」成为纯函数行为（调用方对象保持干净）。
         work = pb.EvidenceEntry()
