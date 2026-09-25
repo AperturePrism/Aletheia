@@ -42,6 +42,15 @@ export const GRPC_ENDPOINT = `ws://${location.host}/grpc`;
 export const channel = createChannel(GRPC_ENDPOINT);
 export const clientFactory: ClientFactory = createClientFactory();
 
+// I2：LedgerService 客户端实例化（definition 见 ledgerDefinition.ts ——
+// ts-proto 不生成 definition 常量，由生成物消息常量 + 契约校验兜底的手写层）。
+// 生成接口 LedgerServiceClient 保证调用点类型安全（Q14：类型唯一来源是 proto）。
+import { LedgerServiceDefinition } from "./ledgerDefinition";
+export const ledgerClient = clientFactory.create(
+  LedgerServiceDefinition,
+  channel,
+) as unknown as LedgerServiceClient;
+
 // 说明：05 契约当前只生成了 *ServiceClient / *ServiceImplementation 接口
 // （ts-proto 的 outputServices=nice-grpc），没有生成 ServiceDefinition 常量，
 // 而 nice-grpc-web 的 createClient() 需要它才能实例化客户端。

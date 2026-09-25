@@ -5,6 +5,7 @@ import { AppLayout } from "./components/AppLayout";
 import { SessionOverviewPage } from "./views/session/SessionOverviewPage";
 import { LiveExecutionPage } from "./views/live/LiveExecutionPage";
 import { NotImplementedPage } from "./views/NotImplementedPage";
+import { EvidenceChainPage } from "./views/evidence/EvidenceChainPage";
 import "./styles/app.css";
 
 // Aletheia WebUI 入口。
@@ -33,13 +34,10 @@ const router = createBrowserRouter([
         element: <NotImplementedPage pageName="心智地图浏览器" iteration="I4" module="M2" />,
       },
 
-      // 06 §6.1 页面 4 ★ 证据链视图 —— I2
+      // 06 §6.1 页面 4 ★ 证据链视图 —— I2 交付（最小可用版）。
       // 本项目三个核心视图之一（docs/09 R9：不可省略）。
-      {
-        path: "evidence",
-        element: <NotImplementedPage pageName="证据链视图 ★" iteration="I2" module="M4" coreView />,
-      },
-      { path: "evidence/:findingId", element: <NotImplementedPage pageName="证据链视图 ★" iteration="I2" module="M4" coreView /> },
+      { path: "evidence", element: <EvidenceChainPage /> },
+      { path: "evidence/:findingId", element: <EvidenceChainPage /> },
 
       // 06 §6.1 页面 5 ★ 光圈上下文视图 —— I5
       {
