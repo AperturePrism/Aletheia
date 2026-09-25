@@ -95,7 +95,7 @@ func forward[Resp any](ctx context.Context, addr string, call func() (Resp, erro
 			st := status.New(codes.Unavailable,
 				"focalplane (ledger) unreachable at "+addr+"; start it via `uv run python -m aletheia.focalplane.server`")
 			d, derr := st.WithDetails(&alethv1.Error{
-				Code: alethv1.ErrorCode_UPSTREAM_UNAVAILABLE,
+				Code:    alethv1.ErrorCode_UPSTREAM_UNAVAILABLE,
 				Message: "LedgerService unavailable; forged evidence cannot be adjudicated without it",
 			})
 			if derr == nil {
