@@ -1536,13 +1536,27 @@ export interface ValidateAssertionResult {
   errors?: Error[] | undefined;
 }
 
-/** [derived] 05 §5.3 引用。 */
+/**
+ * [derived] 05 §5.3 引用。
+ * I2 契约变更（contract:，变更理由见 docs/CHANGELOG）：
+ *   增加 signed_exec_id —— G-1 执行绑定的验签输入。07 §T4.1 要求
+ *   「exec_id 由 Sandbox 签发并签名，私钥不出 Sandbox 进程；M4 独立验签」，
+ *   验签必须发生在 append 路径上（不存在绕过验签的入库路径），
+ *   因此签名必须随证据进入账本请求。SignedExecId 是 05 §6.3 的 frozen 消息。
+ */
 export interface AppendEvidenceRequest {
   entry?:
     | EvidenceEntry
     | undefined;
   /** 为 true 时若 evidence_id 已存在则返回既有记录（幂等），不重复追加。 */
-  idempotent?: boolean | undefined;
+  idempotent?:
+    | boolean
+    | undefined;
+  /**
+   * entry.exec_id 的 Sandbox 签名。缺失或验签失败 → G-1 拒绝，
+   * 对应 EVIDENCE_INVALID（05 §1.3：伪造/缺失 exec_id → 判定幻觉）。
+   */
+  signedExecId?: SignedExecId | undefined;
 }
 
 /** [derived] 05 §5.3 引用。 */
@@ -8456,7 +8470,7 @@ export const ValidateAssertionResult: MessageFns<ValidateAssertionResult> = {
 };
 
 function createBaseAppendEvidenceRequest(): AppendEvidenceRequest {
-  return { entry: undefined, idempotent: false };
+  return { entry: undefined, idempotent: false, signedExecId: undefined };
 }
 
 export const AppendEvidenceRequest: MessageFns<AppendEvidenceRequest> = {
@@ -8466,6 +8480,9 @@ export const AppendEvidenceRequest: MessageFns<AppendEvidenceRequest> = {
     }
     if (message.idempotent !== undefined && message.idempotent !== false) {
       writer.uint32(16).bool(message.idempotent);
+    }
+    if (message.signedExecId !== undefined) {
+      SignedExecId.encode(message.signedExecId, writer.uint32(26).fork()).join();
     }
     return writer;
   },
@@ -8499,6 +8516,14 @@ export const AppendEvidenceRequest: MessageFns<AppendEvidenceRequest> = {
             message.idempotent = reader.bool();
             continue;
           }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.signedExecId = SignedExecId.decode(reader, reader.uint32());
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -8515,6 +8540,11 @@ export const AppendEvidenceRequest: MessageFns<AppendEvidenceRequest> = {
     return {
       entry: isSet(object.entry) ? EvidenceEntry.fromJSON(object.entry) : undefined,
       idempotent: isSet(object.idempotent) ? globalThis.Boolean(object.idempotent) : false,
+      signedExecId: isSet(object.signedExecId)
+        ? SignedExecId.fromJSON(object.signedExecId)
+        : isSet(object.signed_exec_id)
+        ? SignedExecId.fromJSON(object.signed_exec_id)
+        : undefined,
     };
   },
 
@@ -8525,6 +8555,9 @@ export const AppendEvidenceRequest: MessageFns<AppendEvidenceRequest> = {
     }
     if (message.idempotent !== undefined && message.idempotent !== false) {
       obj.idempotent = message.idempotent;
+    }
+    if (message.signedExecId !== undefined) {
+      obj.signedExecId = SignedExecId.toJSON(message.signedExecId);
     }
     return obj;
   },
@@ -8538,6 +8571,9 @@ export const AppendEvidenceRequest: MessageFns<AppendEvidenceRequest> = {
       ? EvidenceEntry.fromPartial(object.entry)
       : undefined;
     message.idempotent = object.idempotent ?? false;
+    message.signedExecId = (object.signedExecId !== undefined && object.signedExecId !== null)
+      ? SignedExecId.fromPartial(object.signedExecId)
+      : undefined;
     return message;
   },
 };
