@@ -206,9 +206,10 @@ test-determinism: ## Q6：确定性（相同输入产出字节级一致）
 redline: ## Q3/Q4/Q5 红线门禁（Q3 已交付 I2；Q4/Q5 随 I3）
 	@echo "== 红线门禁 Q3/Q4/Q5 =="
 	@echo "  Q3 伪造证据注入 100% 被拒 —— tests/redline/test_q3_forged_evidence.py"
-	@echo "  Q4 越界 100% fail-closed    —— I3 交付"
-	@echo "  Q5 抓包零真实值泄漏         —— I3 交付"
+	@echo "  Q4 越界 100% fail-closed    —— core/scopekernel（7 类绕过防御）"
+	@echo "  Q5 抓包零真实值泄漏         —— core/gateway（出站扫描；靶场抓包 I3 末验证）"
 	$(PYTEST) -q -m redline
+	$(GO) test $(GO_PKGS:%=./%) -count=1 -run "TestNormalize|TestExcludeBeatsInclude|TestDefaultDeny|TestPostDNS|TestRateLimit|TestParseScope|TestTokenize|TestDetokenize|TestScanOutbound|TestCredential"
 
 .PHONY: coverage
 coverage: ## Q2：覆盖率（Python 阈值见 pyproject.toml；Go 解析器 ≥90%，scripts/coverage-go.sh）
