@@ -9,6 +9,31 @@
 
 ## [Unreleased]
 
+### I3 · M6 范围内核与隐私网关（2026-09-25）
+
+**Added**
+- **Scope Kernel**（`core/scopekernel/`）：三重校验（network / tool_param /
+  post_dns）；七类绕过防御（十进制/八进制/十六进制 IP、IPv6 映射、userinfo、
+  尾点/大小写、超长域名拒绝）；匹配语义不可协商（exclude 优先 → include →
+  默认拒绝）；post_dns 无 resolver fail-closed；按目标+会话限流（M6 §3.4）。
+- **Privacy Gateway**（`core/gateway/`）：确定性 token 映射（同会话同值同
+  token）；执行前回注；五类泄漏模式出站扫描命中即阻断；告警摘录掩码 +
+  真实值哈希。PATH_INTERNAL 的 Python lookbehind 以独立扫描函数等价实现
+  （Go RE2 限制）。
+- **CostGovernor 最小实现**（`core/governor/`）：预扣制（失败即拒）+ 双阈值
+  （≥0.8 收窄 / ≥1.0 熔断）+ 熔断无逃逸；零预算为配置错误（Q9 执行体）。
+- **接线**：Ingest 的 Scope/Gateway 依赖真实化（I1 预留接口）；ScopeService
+  gRPC 适配；越界 SCOPE_VIOLATION 与执行依赖失败在错误码上可区分。
+- **页面 9**：范围与授权管理（只读形态；录入走 CLI，06 §6.1 原文）。
+
+**Changed**
+- `make redline`：追加 Go 侧 Q4/Q5 用例（scopekernel + gateway）。
+
+**已知缺口**
+- Q5 真实靶场抓包未执行（docker 未装）—— 机制层已验证；P0 门禁第 4 条
+  在靶场验证前不得视为通过（I3 自检报告 🟠 P1）。
+- Sandbox 与 GovernorService gRPC 未做（04 §I3 清单未列；顺延待项目负责人确认）。
+
 ### I2 · M4 证据账本与四道闸门（2026-09-25）
 
 **Added**
