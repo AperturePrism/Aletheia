@@ -197,8 +197,10 @@ test-contract: ## Q10：契约一致性（Go/Python/TS 三侧 vs docs/05）
 
 .PHONY: test-determinism
 test-determinism: ## Q6：确定性（相同输入产出字节级一致）
-	$(PYTEST) -q -m determinism
 	$(GO) test $(GO_PKGS) -count=1 -run Determin
+	@echo "Python 侧：I0–I1 无 Python 确定性对象（agents/ 仅 proto 生成物），"
+	@echo "            pytest 的 -m determinism 过滤当前零匹配（exit 5 是恒态，不是失败）；"
+	@echo "            I2 证据账本落地后在此恢复 $(PYTEST) -q -m determinism。"
 
 .PHONY: redline
 redline: ## Q3/Q4/Q5 红线门禁（当前为占位，随 I2/I3 填充）
@@ -210,10 +212,11 @@ redline: ## Q3/Q4/Q5 红线门禁（当前为占位，随 I2/I3 填充）
 	@echo "  （当前红线用例：契约一致性，见 tests/test_contract_consistency.py）"
 
 .PHONY: coverage
-coverage: ## Q2：覆盖率（阈值见 pyproject.toml，解析器 ≥90%）
+coverage: ## Q2：覆盖率（Python 阈值见 pyproject.toml；Go 解析器 ≥90%，scripts/coverage-go.sh）
 	$(PYTEST) --cov --cov-report=term-missing --cov-report=html
 	$(GO) test $(GO_PKGS) -coverprofile=cover.out
 	@echo "Go coverage: cover.out"
+	bash scripts/coverage-go.sh 90
 
 .PHONY: stability
 stability: ## Q8：长时稳定性测试（24h/143h，默认不跑）

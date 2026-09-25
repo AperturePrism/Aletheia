@@ -1,0 +1,4 @@
+{"template-id":"cve-2021-44228","info":{"name":"Apache Log4j RCE","severity":"critical","tags":["cve","rce"],"classification":{"cve-id":["CVE-2021-44228"]}},"matcher-status":true,"matched-at":"http://scanme.test:8080/","host":"192.0.2.10","type":"http","timestamp":"2026-09-25T00:00:00Z"}
+{"template-id":"tech-detection","info":{"name":"Tech detection","severity":"info","tags":["tech"]},"matcher-status":true,"matched-at":"http://scanme.test:80/","host":"192.0.2.10","type":"http","timestamp":"2026-09-25T00:00:01Z"}
+{"template-id":"cve-2023-1234","info":{"name":"Example low","severity":"low","tags":["cve"]},"matcher-status":false,"matched-at":"http://scanme.test:80/","host":"192.0.2.10","type":"http","timestamp":"2026-09-25T00:00:02Z"}
+{"template-id":"broken-template","info":{"severity":"high"},"matcher-status":true,"matched
