@@ -117,6 +117,7 @@ class Ledger:
     """
 
     def __init__(self, db_path: str, exec_verifier: ExecVerifier) -> None:
+        self.db_path = db_path
         self._verifier = exec_verifier
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
