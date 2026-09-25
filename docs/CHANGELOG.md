@@ -9,6 +9,54 @@
 
 ## [Unreleased]
 
+### I1 · M1 光谱摄入（2026-09-25）
+
+**Added**
+- **参数化适配器框架**：`core/ingest/adapter.go` —— Adapter 统一接口（M1 §4.1）、
+  ParamSchema DSL（Target/PortRange/Enum/EnumList/BoolFlag/Path 六种类型，
+  **没有自由字符串类型** —— R5 的类型级防线）、含端点的版本区间门禁、
+  Catalog 工具白名单（threat-model T2 缓解）。未知参数与参数名变体显式
+  `INVALID_ARGUMENT`，常见别名归一（M1 §4.3 翻车点 3）。
+- **三个工具适配器与确定性解析器**：`core/ingest/{nmap,httpx,nuclei}/`。
+  nmap 走 `-oX` XML（破损整体 fail-closed），httpx/nuclei 走 JSONL（单行破损
+  显式降级为 RAW 记录 + unparsed 计数，不静默丢弃）。M1 §4.3 三个翻车点全部
+  显式处理并有测试：版本串前导数字守卫（`^\d+\s*\(`）、进入解析前统一
+  strip ANSI、参数名变体。实体草稿（ASSET/SERVICE/ENDPOINT/DEFECT）按
+  05 §3.1 抽取，`source_line` 回指原始输出行号。
+- **归一化与无损折叠**：`core/spectrum/` —— UTF-8 消毒、ANSI 清洗、
+  CRLF/LF/CR 归一、单行 1MB 截断（T9 资源耗尽缓解）；折叠要求相邻同模板 +
+  行号连续 + span 相同，`ExpandFolded(Fold(x)) == x` 与
+  `LinesContaining` 语义查询等价性是可验证判据（DoD③）。
+- **IngestService 真实实现并接线**：`core/ingest/service.go` +
+  `cmd/alethd/main.go`（`registry.Ingest` 替换 `unimplementedIngest{}`）。
+  Execute 实现 05 §7.1 步骤 3–7 全链路，Scope/Gateway/Sandbox 以接口注入，
+  依赖缺失时显式 `UPSTREAM_UNAVAILABLE`（fail-closed）；ListAdapters（字典序
+  分页）与 ValidateTool（版本门禁）真实可用。原始输出落内容寻址存储
+  `RawStore`（`RawOutputRef` 契约）。
+- **uuid7 与 ID 约定**：`core/ingest/parseutil.go` 的 `newSpectrumID()`
+  （`sp_{uuid7}`，时间有序，10 §P4 豁免项）。
+- **Q2 门禁脚本**：`scripts/coverage-go.sh` —— Go 解析器覆盖率 ≥90%
+  （排除测试辅助包 testutil），`make coverage` 调用。
+- **测试**：三适配器 + 框架 + 折叠的边界用例与确定性测试（Go 侧新增 40+
+  用例）；fixtures 真源在 `tests/parsers/fixtures/{nmap,httpx,nuclei}/`
+  （RFC 5737 文档网段与 `.test` 保留域，无真实目标信息）。
+
+**Changed**
+- `Makefile` `coverage`：追加 Go 解析器阈值检查（此前 Go 侧无 90% 强制）。
+- `Makefile` `test-determinism`：从恒失败的占位（pytest `-m determinism`
+  零匹配 → exit 5）改为 Go 侧真实门禁；Python 侧显式注明 I2 恢复。
+  **不是放宽** —— 原状态是永假占位，新状态是真实门禁 + 显式声明。
+- `core/config`：`validateStorage` 补 `storage.evidence_dir` 非空断言
+  （默认值仍由 `DefaultFilePaths()` 派生）。
+- 测试迁移说明：Q6 确定性验证必须用 `proto.MarshalOptions{Deterministic: true}`
+  —— go/protobuf 对 map 字段的默认序列化顺序是故意随机的。
+
+**Security**
+- 参数值全类型强制校验：shell 元字符 / 空白 / 前导 `-`（选项注入）/
+  路径穿越（`..`）全部显式拒绝；argv 以独立元素传递，不存在字符串拼接路径。
+- ScanOutbound 命中即阻断光谱出站（`PRIVACY_LEAK_DETECTED`）；
+  Sandbox 返回空 `exec_id` 视为违约（`EVIDENCE_INVALID`）。
+
 ### I0 · 仓库骨架与抽象层（2026-09-24）
 
 **Added**

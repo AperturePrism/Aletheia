@@ -18,7 +18,7 @@
 你将接手 **Aletheia** 的开发工作。这是一个以「可证明性」为第一原则的自主渗透测试系统：
 结论必须由证据显现，不可由模型声称。
 
-**仓库**：`github.com/AperturePrism/Aletheia`（当前 HEAD：`1e699fe`，最新 tag：`v0.1.0`）
+**仓库**：`github.com/AperturePrism/Aletheia`（当前 HEAD：`5bc8de9`，最新 tag：`v0.1.0`）
 **技术栈**：Go（L0 + 横切 + CLI + daemon）/ Python（L1–L4 + Agent）/ React + TS（WebUI）
 
 ---
@@ -45,15 +45,18 @@
 
 ## 二、当前状态
 
-- **I0 · 仓库骨架与抽象层 —— 已完成并发布 `v0.1.0`**。
-  契约冻结并三侧生成、Go 侧安全地基（配置/日志/OTel/检查点）就位、
-  CI 6 job 全绿、39 项 Python 测试 + Go 测试、Release 流程已实测跑通。
-- **本版本不交付任何渗透能力**：`05` 定义的 10 个服务全部显式返回 `UNIMPLEMENTED`，
-  这是有意的，不是遗漏。真实能力按 `docs/04` §4 的迭代顺序逐个替换，
-  替换点就在 `core/api/server/registry.go`。
-- **下一步是 I1 · M1 光谱摄入**：nmap / httpx / nuclei 三个参数化适配器 +
-  确定性解析器。开工前先读 `docs/iterations/I0-交接.md` 第 8 节，
-  它给出了具体的第一步动作与 4 条注意事项。
+- **I1 · M1 光谱摄入 —— 已完成**（nmap / httpx / nuclei 三个参数化适配器 +
+  确定性解析器 + 无损折叠；IngestService 已接线；解析器覆盖率 92.2%；
+  `make gate` 全绿）。I0 的 `v0.1.0` 之后尚未打新 tag（tag 随发布流程统一处理）。
+- **能力边界仍然成立**：L0 的 `Execute` 已实现 05 §7.1 全链路，但
+  Scope/Gateway/Sandbox 三依赖在 I3 交付 —— 未装配期间 Execute 显式返回
+  `UPSTREAM_UNAVAILABLE`（fail-closed），**这不是故障**。
+  `ListAdapters` / `ValidateTool` 已真实可用；其余 9 个服务仍显式 `UNIMPLEMENTED`。
+- **下一步是 I2 · M4 证据账本与四道闸门**（`04` 称之为全项目最重要的一次迭代）：
+  Evidence Ledger（append-only）、四道闸门、伪造证据注入 100% 被拒（Q3 补 CI）。
+  开工前先读 `docs/iterations/I1-交接.md` 第 8 节，
+  它给出了 I2 的对接面（RawOutputRef 同构、exec_id 桩路径、pytest determinism 恢复点）
+  与具体第一步。
 
 ---
 
