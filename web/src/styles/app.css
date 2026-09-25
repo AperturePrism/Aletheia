@@ -246,3 +246,96 @@ a { color: var(--accent); }
   .app-nav { border-right: none; border-bottom: 1px solid var(--border); }
   .app-main { padding: 1rem; }
 }
+
+/* ---- 页面 4 · 证据链视图（I2）---- */
+.evidence-lookup {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 20px;
+}
+.evidence-lookup input {
+  flex: 1;
+  max-width: 420px;
+  padding: 6px 10px;
+  font-family: monospace;
+}
+.attribution {
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+.attribution.ok {
+  background: #e6f4ea;
+  color: #137333;
+}
+.attribution.broken {
+  background: #fce8e6;
+  color: #c5221f;
+}
+.attribution-error {
+  font-weight: 400;
+  font-size: 0.9em;
+}
+.assertion-card,
+.evidence-card {
+  border: 1px solid #d5d9dd;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+.assertion-id,
+.evidence-id {
+  font-family: monospace;
+  font-size: 0.85em;
+  color: #5f6368;
+  margin-bottom: 6px;
+}
+.assertion-statement {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.card dl,
+.evidence-card dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 8px 0;
+  font-size: 0.92em;
+}
+.evidence-card dt,
+.assertion-card dt {
+  color: #5f6368;
+}
+.cross-refs {
+  font-size: 0.88em;
+  color: #3c4043;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+.side-effect {
+  border-left: 3px solid #1a73e8;
+  padding-left: 10px;
+  margin: 8px 0;
+}
+.side-effect-kind {
+  font-weight: 600;
+  font-size: 0.88em;
+}
+.side-effect-pattern {
+  font-size: 0.85em;
+  color: #1a73e8;
+}
+.side-effect-observation {
+  background: #f8f9fa;
+  padding: 6px 8px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 0.82em;
+}
+.muted {
+  color: #80868b;
+}
