@@ -3641,11 +3641,20 @@ func (x *ValidateAssertionResult) GetErrors() []*Error {
 }
 
 // [derived] 05 §5.3 引用。
+// I2 契约变更（contract:，变更理由见 docs/CHANGELOG）：
+//
+//	增加 signed_exec_id —— G-1 执行绑定的验签输入。07 §T4.1 要求
+//	「exec_id 由 Sandbox 签发并签名，私钥不出 Sandbox 进程；M4 独立验签」，
+//	验签必须发生在 append 路径上（不存在绕过验签的入库路径），
+//	因此签名必须随证据进入账本请求。SignedExecId 是 05 §6.3 的 frozen 消息。
 type AppendEvidenceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Entry *EvidenceEntry         `protobuf:"bytes,1,opt,name=entry,proto3" json:"entry,omitempty"`
 	// 为 true 时若 evidence_id 已存在则返回既有记录（幂等），不重复追加。
-	Idempotent    bool `protobuf:"varint,2,opt,name=idempotent,proto3" json:"idempotent,omitempty"`
+	Idempotent bool `protobuf:"varint,2,opt,name=idempotent,proto3" json:"idempotent,omitempty"`
+	// entry.exec_id 的 Sandbox 签名。缺失或验签失败 → G-1 拒绝，
+	// 对应 EVIDENCE_INVALID（05 §1.3：伪造/缺失 exec_id → 判定幻觉）。
+	SignedExecId  *SignedExecId `protobuf:"bytes,3,opt,name=signed_exec_id,json=signedExecId,proto3" json:"signed_exec_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3692,6 +3701,13 @@ func (x *AppendEvidenceRequest) GetIdempotent() bool {
 		return x.Idempotent
 	}
 	return false
+}
+
+func (x *AppendEvidenceRequest) GetSignedExecId() *SignedExecId {
+	if x != nil {
+		return x.SignedExecId
+	}
+	return nil
 }
 
 // [derived] 05 §5.3 引用。
@@ -7765,12 +7781,13 @@ const file_aleth_v1_aletheia_proto_rawDesc = "" +
 	"g3Strength\x12=\n" +
 	"\x0fg4_reproduction\x18\x04 \x01(\v2\x14.aleth.v1.GateResultR\x0eg4Reproduction\x12B\n" +
 	"\x10resulting_status\x18\x05 \x01(\x0e2\x17.aleth.v1.FindingStatusR\x0fresultingStatus\x12'\n" +
-	"\x06errors\x18\x06 \x03(\v2\x0f.aleth.v1.ErrorR\x06errors\"f\n" +
+	"\x06errors\x18\x06 \x03(\v2\x0f.aleth.v1.ErrorR\x06errors\"\xa4\x01\n" +
 	"\x15AppendEvidenceRequest\x12-\n" +
 	"\x05entry\x18\x01 \x01(\v2\x17.aleth.v1.EvidenceEntryR\x05entry\x12\x1e\n" +
 	"\n" +
 	"idempotent\x18\x02 \x01(\bR\n" +
-	"idempotent\"\x98\x01\n" +
+	"idempotent\x12<\n" +
+	"\x0esigned_exec_id\x18\x03 \x01(\v2\x16.aleth.v1.SignedExecIdR\fsignedExecId\"\x98\x01\n" +
 	"\x14AppendEvidenceResult\x12\x1f\n" +
 	"\vevidence_id\x18\x01 \x01(\tR\n" +
 	"evidenceId\x12\x1b\n" +
@@ -8443,133 +8460,134 @@ var file_aleth_v1_aletheia_proto_depIdxs = []int32{
 	5,   // 52: aleth.v1.ValidateAssertionResult.resulting_status:type_name -> aleth.v1.FindingStatus
 	12,  // 53: aleth.v1.ValidateAssertionResult.errors:type_name -> aleth.v1.Error
 	44,  // 54: aleth.v1.AppendEvidenceRequest.entry:type_name -> aleth.v1.EvidenceEntry
-	12,  // 55: aleth.v1.AppendEvidenceResult.error:type_name -> aleth.v1.Error
-	45,  // 56: aleth.v1.ValidateAssertionRequest.assertion:type_name -> aleth.v1.Assertion
-	46,  // 57: aleth.v1.RecordSideEffectRequest.observation:type_name -> aleth.v1.SideEffectObservation
-	12,  // 58: aleth.v1.RecordSideEffectResult.error:type_name -> aleth.v1.Error
-	47,  // 59: aleth.v1.ReproduceRequest.spec:type_name -> aleth.v1.ReproSpec
-	48,  // 60: aleth.v1.ReproduceResult.g4:type_name -> aleth.v1.GateResult
-	12,  // 61: aleth.v1.ReproduceResult.error:type_name -> aleth.v1.Error
-	45,  // 62: aleth.v1.TracedEvidenceChain.assertions:type_name -> aleth.v1.Assertion
-	44,  // 63: aleth.v1.TracedEvidenceChain.evidence:type_name -> aleth.v1.EvidenceEntry
-	46,  // 64: aleth.v1.TracedEvidenceChain.side_effects:type_name -> aleth.v1.SideEffectObservation
-	12,  // 65: aleth.v1.TracedEvidenceChain.attribution_errors:type_name -> aleth.v1.Error
-	12,  // 66: aleth.v1.HallucinationState.error:type_name -> aleth.v1.Error
-	8,   // 67: aleth.v1.TerminationDecision.refusal_reason:type_name -> aleth.v1.TerminationRefusalReason
-	9,   // 68: aleth.v1.Task.required_role:type_name -> aleth.v1.AgentRole
-	10,  // 69: aleth.v1.Task.status:type_name -> aleth.v1.TaskStatus
-	40,  // 70: aleth.v1.Task.context:type_name -> aleth.v1.ContextBundle
-	64,  // 71: aleth.v1.Task.failures:type_name -> aleth.v1.FailureRecord
-	63,  // 72: aleth.v1.TaskGraph.tasks:type_name -> aleth.v1.Task
-	65,  // 73: aleth.v1.PlanRequest.proposed_graph:type_name -> aleth.v1.TaskGraph
-	112, // 74: aleth.v1.NextReadyResponse.blocked_reasons:type_name -> aleth.v1.NextReadyResponse.BlockedReasonsEntry
-	10,  // 75: aleth.v1.ReportTaskResultRequest.status:type_name -> aleth.v1.TaskStatus
-	64,  // 76: aleth.v1.ReportTaskResultRequest.failures:type_name -> aleth.v1.FailureRecord
-	63,  // 77: aleth.v1.TaskUpdateResult.updated_task:type_name -> aleth.v1.Task
-	65,  // 78: aleth.v1.TaskUpdateResult.updated_graph:type_name -> aleth.v1.TaskGraph
-	12,  // 79: aleth.v1.TaskUpdateResult.error:type_name -> aleth.v1.Error
-	64,  // 80: aleth.v1.RefineRequest.failures:type_name -> aleth.v1.FailureRecord
-	114, // 81: aleth.v1.CheckpointInfo.created_at:type_name -> google.protobuf.Timestamp
-	12,  // 82: aleth.v1.RewindResult.error:type_name -> aleth.v1.Error
-	12,  // 83: aleth.v1.ForkResult.error:type_name -> aleth.v1.Error
-	1,   // 84: aleth.v1.ScopeCheckResult.failed_layer:type_name -> aleth.v1.ScopeLayer
-	1,   // 85: aleth.v1.ScopeCheckRequest.layer:type_name -> aleth.v1.ScopeLayer
-	81,  // 86: aleth.v1.ReserveResult.state:type_name -> aleth.v1.BudgetState
-	12,  // 87: aleth.v1.ReserveResult.error:type_name -> aleth.v1.Error
-	81,  // 88: aleth.v1.CircuitState.budget:type_name -> aleth.v1.BudgetState
-	114, // 89: aleth.v1.SignedExecId.issued_at:type_name -> google.protobuf.Timestamp
-	113, // 90: aleth.v1.SandboxExecRequest.params:type_name -> aleth.v1.SandboxExecRequest.ParamsEntry
-	15,  // 91: aleth.v1.SandboxExecResult.stdout_ref:type_name -> aleth.v1.RawOutputRef
-	15,  // 92: aleth.v1.SandboxExecResult.stderr_ref:type_name -> aleth.v1.RawOutputRef
-	12,  // 93: aleth.v1.SandboxExecResult.error:type_name -> aleth.v1.Error
-	92,  // 94: aleth.v1.TokenizeResult.mappings:type_name -> aleth.v1.TokenMapping
-	99,  // 95: aleth.v1.ScanResult.hits:type_name -> aleth.v1.LeakHit
-	5,   // 96: aleth.v1.Finding.status:type_name -> aleth.v1.FindingStatus
-	47,  // 97: aleth.v1.Finding.reproducibility:type_name -> aleth.v1.ReproSpec
-	46,  // 98: aleth.v1.Finding.side_effects:type_name -> aleth.v1.SideEffectObservation
-	27,  // 99: aleth.v1.Report.scope:type_name -> aleth.v1.ScopeInfo
-	100, // 100: aleth.v1.Report.confirmed:type_name -> aleth.v1.Finding
-	100, // 101: aleth.v1.Report.candidates:type_name -> aleth.v1.Finding
-	101, // 102: aleth.v1.Report.evidence_summary:type_name -> aleth.v1.EvidenceSummary
-	102, // 103: aleth.v1.Report.cost:type_name -> aleth.v1.CostSummary
-	103, // 104: aleth.v1.Report.limitations:type_name -> aleth.v1.Limitation
-	19,  // 105: aleth.v1.IngestService.Execute:input_type -> aleth.v1.ToolRequest
-	20,  // 106: aleth.v1.IngestService.ListAdapters:input_type -> aleth.v1.ListAdaptersRequest
-	22,  // 107: aleth.v1.IngestService.ValidateTool:input_type -> aleth.v1.ValidateToolRequest
-	13,  // 108: aleth.v1.PrismService.Ingest:input_type -> aleth.v1.EvidenceSpectrum
-	31,  // 109: aleth.v1.PrismService.Project:input_type -> aleth.v1.ProjectRequest
-	32,  // 110: aleth.v1.PrismService.SnapshotAt:input_type -> aleth.v1.SnapshotAtRequest
-	33,  // 111: aleth.v1.PrismService.CreateBranch:input_type -> aleth.v1.CreateBranchRequest
-	35,  // 112: aleth.v1.PrismService.RollbackBranch:input_type -> aleth.v1.RollbackBranchRequest
-	37,  // 113: aleth.v1.PrismService.MergeBranch:input_type -> aleth.v1.MergeBranchRequest
-	41,  // 114: aleth.v1.ApertureService.Assemble:input_type -> aleth.v1.AssembleRequest
-	42,  // 115: aleth.v1.ApertureService.Autofocus:input_type -> aleth.v1.AutofocusRequest
-	50,  // 116: aleth.v1.LedgerService.Append:input_type -> aleth.v1.AppendEvidenceRequest
-	52,  // 117: aleth.v1.LedgerService.ValidateAssertion:input_type -> aleth.v1.ValidateAssertionRequest
-	53,  // 118: aleth.v1.LedgerService.RecordSideEffect:input_type -> aleth.v1.RecordSideEffectRequest
-	55,  // 119: aleth.v1.LedgerService.Reproduce:input_type -> aleth.v1.ReproduceRequest
-	57,  // 120: aleth.v1.LedgerService.TraceFinding:input_type -> aleth.v1.TraceFindingRequest
-	59,  // 121: aleth.v1.LedgerService.ReportHallucination:input_type -> aleth.v1.ReportHallucinationRequest
-	61,  // 122: aleth.v1.TerminationService.RequestTermination:input_type -> aleth.v1.TerminationRequest
-	66,  // 123: aleth.v1.OrchestratorService.Plan:input_type -> aleth.v1.PlanRequest
-	67,  // 124: aleth.v1.OrchestratorService.NextReady:input_type -> aleth.v1.NextReadyRequest
-	69,  // 125: aleth.v1.OrchestratorService.ReportTaskResult:input_type -> aleth.v1.ReportTaskResultRequest
-	71,  // 126: aleth.v1.OrchestratorService.Refine:input_type -> aleth.v1.RefineRequest
-	72,  // 127: aleth.v1.OrchestratorService.Checkpoint:input_type -> aleth.v1.CheckpointRequest
-	74,  // 128: aleth.v1.OrchestratorService.Rewind:input_type -> aleth.v1.RewindRequest
-	76,  // 129: aleth.v1.OrchestratorService.Fork:input_type -> aleth.v1.ForkRequest
-	79,  // 130: aleth.v1.ScopeService.Check:input_type -> aleth.v1.ScopeCheckRequest
-	80,  // 131: aleth.v1.ScopeService.LoadScope:input_type -> aleth.v1.LoadScopeRequest
-	82,  // 132: aleth.v1.GovernorService.Reserve:input_type -> aleth.v1.ReserveRequest
-	84,  // 133: aleth.v1.GovernorService.Consume:input_type -> aleth.v1.ConsumeRequest
-	85,  // 134: aleth.v1.GovernorService.State:input_type -> aleth.v1.BudgetStateRequest
-	86,  // 135: aleth.v1.GovernorService.CheckCircuit:input_type -> aleth.v1.CircuitCheckRequest
-	89,  // 136: aleth.v1.SandboxService.Execute:input_type -> aleth.v1.SandboxExecRequest
-	91,  // 137: aleth.v1.SandboxService.SignExecId:input_type -> aleth.v1.SignExecIdRequest
-	94,  // 138: aleth.v1.GatewayService.Tokenize:input_type -> aleth.v1.TokenizeRequest
-	96,  // 139: aleth.v1.GatewayService.Detokenize:input_type -> aleth.v1.DetokenizeRequest
-	98,  // 140: aleth.v1.GatewayService.ScanOutbound:input_type -> aleth.v1.ScanRequest
-	13,  // 141: aleth.v1.IngestService.Execute:output_type -> aleth.v1.EvidenceSpectrum
-	21,  // 142: aleth.v1.IngestService.ListAdapters:output_type -> aleth.v1.ListAdaptersResponse
-	23,  // 143: aleth.v1.IngestService.ValidateTool:output_type -> aleth.v1.ValidateToolResponse
-	29,  // 144: aleth.v1.PrismService.Ingest:output_type -> aleth.v1.IngestResult
-	28,  // 145: aleth.v1.PrismService.Project:output_type -> aleth.v1.ProjectedSubgraph
-	28,  // 146: aleth.v1.PrismService.SnapshotAt:output_type -> aleth.v1.ProjectedSubgraph
-	34,  // 147: aleth.v1.PrismService.CreateBranch:output_type -> aleth.v1.BranchInfo
-	36,  // 148: aleth.v1.PrismService.RollbackBranch:output_type -> aleth.v1.RollbackResult
-	38,  // 149: aleth.v1.PrismService.MergeBranch:output_type -> aleth.v1.MergeResult
-	40,  // 150: aleth.v1.ApertureService.Assemble:output_type -> aleth.v1.ContextBundle
-	43,  // 151: aleth.v1.ApertureService.Autofocus:output_type -> aleth.v1.AutofocusResult
-	51,  // 152: aleth.v1.LedgerService.Append:output_type -> aleth.v1.AppendEvidenceResult
-	49,  // 153: aleth.v1.LedgerService.ValidateAssertion:output_type -> aleth.v1.ValidateAssertionResult
-	54,  // 154: aleth.v1.LedgerService.RecordSideEffect:output_type -> aleth.v1.RecordSideEffectResult
-	56,  // 155: aleth.v1.LedgerService.Reproduce:output_type -> aleth.v1.ReproduceResult
-	58,  // 156: aleth.v1.LedgerService.TraceFinding:output_type -> aleth.v1.TracedEvidenceChain
-	60,  // 157: aleth.v1.LedgerService.ReportHallucination:output_type -> aleth.v1.HallucinationState
-	62,  // 158: aleth.v1.TerminationService.RequestTermination:output_type -> aleth.v1.TerminationDecision
-	65,  // 159: aleth.v1.OrchestratorService.Plan:output_type -> aleth.v1.TaskGraph
-	68,  // 160: aleth.v1.OrchestratorService.NextReady:output_type -> aleth.v1.NextReadyResponse
-	70,  // 161: aleth.v1.OrchestratorService.ReportTaskResult:output_type -> aleth.v1.TaskUpdateResult
-	65,  // 162: aleth.v1.OrchestratorService.Refine:output_type -> aleth.v1.TaskGraph
-	73,  // 163: aleth.v1.OrchestratorService.Checkpoint:output_type -> aleth.v1.CheckpointInfo
-	75,  // 164: aleth.v1.OrchestratorService.Rewind:output_type -> aleth.v1.RewindResult
-	77,  // 165: aleth.v1.OrchestratorService.Fork:output_type -> aleth.v1.ForkResult
-	78,  // 166: aleth.v1.ScopeService.Check:output_type -> aleth.v1.ScopeCheckResult
-	27,  // 167: aleth.v1.ScopeService.LoadScope:output_type -> aleth.v1.ScopeInfo
-	83,  // 168: aleth.v1.GovernorService.Reserve:output_type -> aleth.v1.ReserveResult
-	81,  // 169: aleth.v1.GovernorService.Consume:output_type -> aleth.v1.BudgetState
-	81,  // 170: aleth.v1.GovernorService.State:output_type -> aleth.v1.BudgetState
-	87,  // 171: aleth.v1.GovernorService.CheckCircuit:output_type -> aleth.v1.CircuitState
-	90,  // 172: aleth.v1.SandboxService.Execute:output_type -> aleth.v1.SandboxExecResult
-	88,  // 173: aleth.v1.SandboxService.SignExecId:output_type -> aleth.v1.SignedExecId
-	93,  // 174: aleth.v1.GatewayService.Tokenize:output_type -> aleth.v1.TokenizeResult
-	95,  // 175: aleth.v1.GatewayService.Detokenize:output_type -> aleth.v1.DetokenizeResult
-	97,  // 176: aleth.v1.GatewayService.ScanOutbound:output_type -> aleth.v1.ScanResult
-	141, // [141:177] is the sub-list for method output_type
-	105, // [105:141] is the sub-list for method input_type
-	105, // [105:105] is the sub-list for extension type_name
-	105, // [105:105] is the sub-list for extension extendee
-	0,   // [0:105] is the sub-list for field type_name
+	88,  // 55: aleth.v1.AppendEvidenceRequest.signed_exec_id:type_name -> aleth.v1.SignedExecId
+	12,  // 56: aleth.v1.AppendEvidenceResult.error:type_name -> aleth.v1.Error
+	45,  // 57: aleth.v1.ValidateAssertionRequest.assertion:type_name -> aleth.v1.Assertion
+	46,  // 58: aleth.v1.RecordSideEffectRequest.observation:type_name -> aleth.v1.SideEffectObservation
+	12,  // 59: aleth.v1.RecordSideEffectResult.error:type_name -> aleth.v1.Error
+	47,  // 60: aleth.v1.ReproduceRequest.spec:type_name -> aleth.v1.ReproSpec
+	48,  // 61: aleth.v1.ReproduceResult.g4:type_name -> aleth.v1.GateResult
+	12,  // 62: aleth.v1.ReproduceResult.error:type_name -> aleth.v1.Error
+	45,  // 63: aleth.v1.TracedEvidenceChain.assertions:type_name -> aleth.v1.Assertion
+	44,  // 64: aleth.v1.TracedEvidenceChain.evidence:type_name -> aleth.v1.EvidenceEntry
+	46,  // 65: aleth.v1.TracedEvidenceChain.side_effects:type_name -> aleth.v1.SideEffectObservation
+	12,  // 66: aleth.v1.TracedEvidenceChain.attribution_errors:type_name -> aleth.v1.Error
+	12,  // 67: aleth.v1.HallucinationState.error:type_name -> aleth.v1.Error
+	8,   // 68: aleth.v1.TerminationDecision.refusal_reason:type_name -> aleth.v1.TerminationRefusalReason
+	9,   // 69: aleth.v1.Task.required_role:type_name -> aleth.v1.AgentRole
+	10,  // 70: aleth.v1.Task.status:type_name -> aleth.v1.TaskStatus
+	40,  // 71: aleth.v1.Task.context:type_name -> aleth.v1.ContextBundle
+	64,  // 72: aleth.v1.Task.failures:type_name -> aleth.v1.FailureRecord
+	63,  // 73: aleth.v1.TaskGraph.tasks:type_name -> aleth.v1.Task
+	65,  // 74: aleth.v1.PlanRequest.proposed_graph:type_name -> aleth.v1.TaskGraph
+	112, // 75: aleth.v1.NextReadyResponse.blocked_reasons:type_name -> aleth.v1.NextReadyResponse.BlockedReasonsEntry
+	10,  // 76: aleth.v1.ReportTaskResultRequest.status:type_name -> aleth.v1.TaskStatus
+	64,  // 77: aleth.v1.ReportTaskResultRequest.failures:type_name -> aleth.v1.FailureRecord
+	63,  // 78: aleth.v1.TaskUpdateResult.updated_task:type_name -> aleth.v1.Task
+	65,  // 79: aleth.v1.TaskUpdateResult.updated_graph:type_name -> aleth.v1.TaskGraph
+	12,  // 80: aleth.v1.TaskUpdateResult.error:type_name -> aleth.v1.Error
+	64,  // 81: aleth.v1.RefineRequest.failures:type_name -> aleth.v1.FailureRecord
+	114, // 82: aleth.v1.CheckpointInfo.created_at:type_name -> google.protobuf.Timestamp
+	12,  // 83: aleth.v1.RewindResult.error:type_name -> aleth.v1.Error
+	12,  // 84: aleth.v1.ForkResult.error:type_name -> aleth.v1.Error
+	1,   // 85: aleth.v1.ScopeCheckResult.failed_layer:type_name -> aleth.v1.ScopeLayer
+	1,   // 86: aleth.v1.ScopeCheckRequest.layer:type_name -> aleth.v1.ScopeLayer
+	81,  // 87: aleth.v1.ReserveResult.state:type_name -> aleth.v1.BudgetState
+	12,  // 88: aleth.v1.ReserveResult.error:type_name -> aleth.v1.Error
+	81,  // 89: aleth.v1.CircuitState.budget:type_name -> aleth.v1.BudgetState
+	114, // 90: aleth.v1.SignedExecId.issued_at:type_name -> google.protobuf.Timestamp
+	113, // 91: aleth.v1.SandboxExecRequest.params:type_name -> aleth.v1.SandboxExecRequest.ParamsEntry
+	15,  // 92: aleth.v1.SandboxExecResult.stdout_ref:type_name -> aleth.v1.RawOutputRef
+	15,  // 93: aleth.v1.SandboxExecResult.stderr_ref:type_name -> aleth.v1.RawOutputRef
+	12,  // 94: aleth.v1.SandboxExecResult.error:type_name -> aleth.v1.Error
+	92,  // 95: aleth.v1.TokenizeResult.mappings:type_name -> aleth.v1.TokenMapping
+	99,  // 96: aleth.v1.ScanResult.hits:type_name -> aleth.v1.LeakHit
+	5,   // 97: aleth.v1.Finding.status:type_name -> aleth.v1.FindingStatus
+	47,  // 98: aleth.v1.Finding.reproducibility:type_name -> aleth.v1.ReproSpec
+	46,  // 99: aleth.v1.Finding.side_effects:type_name -> aleth.v1.SideEffectObservation
+	27,  // 100: aleth.v1.Report.scope:type_name -> aleth.v1.ScopeInfo
+	100, // 101: aleth.v1.Report.confirmed:type_name -> aleth.v1.Finding
+	100, // 102: aleth.v1.Report.candidates:type_name -> aleth.v1.Finding
+	101, // 103: aleth.v1.Report.evidence_summary:type_name -> aleth.v1.EvidenceSummary
+	102, // 104: aleth.v1.Report.cost:type_name -> aleth.v1.CostSummary
+	103, // 105: aleth.v1.Report.limitations:type_name -> aleth.v1.Limitation
+	19,  // 106: aleth.v1.IngestService.Execute:input_type -> aleth.v1.ToolRequest
+	20,  // 107: aleth.v1.IngestService.ListAdapters:input_type -> aleth.v1.ListAdaptersRequest
+	22,  // 108: aleth.v1.IngestService.ValidateTool:input_type -> aleth.v1.ValidateToolRequest
+	13,  // 109: aleth.v1.PrismService.Ingest:input_type -> aleth.v1.EvidenceSpectrum
+	31,  // 110: aleth.v1.PrismService.Project:input_type -> aleth.v1.ProjectRequest
+	32,  // 111: aleth.v1.PrismService.SnapshotAt:input_type -> aleth.v1.SnapshotAtRequest
+	33,  // 112: aleth.v1.PrismService.CreateBranch:input_type -> aleth.v1.CreateBranchRequest
+	35,  // 113: aleth.v1.PrismService.RollbackBranch:input_type -> aleth.v1.RollbackBranchRequest
+	37,  // 114: aleth.v1.PrismService.MergeBranch:input_type -> aleth.v1.MergeBranchRequest
+	41,  // 115: aleth.v1.ApertureService.Assemble:input_type -> aleth.v1.AssembleRequest
+	42,  // 116: aleth.v1.ApertureService.Autofocus:input_type -> aleth.v1.AutofocusRequest
+	50,  // 117: aleth.v1.LedgerService.Append:input_type -> aleth.v1.AppendEvidenceRequest
+	52,  // 118: aleth.v1.LedgerService.ValidateAssertion:input_type -> aleth.v1.ValidateAssertionRequest
+	53,  // 119: aleth.v1.LedgerService.RecordSideEffect:input_type -> aleth.v1.RecordSideEffectRequest
+	55,  // 120: aleth.v1.LedgerService.Reproduce:input_type -> aleth.v1.ReproduceRequest
+	57,  // 121: aleth.v1.LedgerService.TraceFinding:input_type -> aleth.v1.TraceFindingRequest
+	59,  // 122: aleth.v1.LedgerService.ReportHallucination:input_type -> aleth.v1.ReportHallucinationRequest
+	61,  // 123: aleth.v1.TerminationService.RequestTermination:input_type -> aleth.v1.TerminationRequest
+	66,  // 124: aleth.v1.OrchestratorService.Plan:input_type -> aleth.v1.PlanRequest
+	67,  // 125: aleth.v1.OrchestratorService.NextReady:input_type -> aleth.v1.NextReadyRequest
+	69,  // 126: aleth.v1.OrchestratorService.ReportTaskResult:input_type -> aleth.v1.ReportTaskResultRequest
+	71,  // 127: aleth.v1.OrchestratorService.Refine:input_type -> aleth.v1.RefineRequest
+	72,  // 128: aleth.v1.OrchestratorService.Checkpoint:input_type -> aleth.v1.CheckpointRequest
+	74,  // 129: aleth.v1.OrchestratorService.Rewind:input_type -> aleth.v1.RewindRequest
+	76,  // 130: aleth.v1.OrchestratorService.Fork:input_type -> aleth.v1.ForkRequest
+	79,  // 131: aleth.v1.ScopeService.Check:input_type -> aleth.v1.ScopeCheckRequest
+	80,  // 132: aleth.v1.ScopeService.LoadScope:input_type -> aleth.v1.LoadScopeRequest
+	82,  // 133: aleth.v1.GovernorService.Reserve:input_type -> aleth.v1.ReserveRequest
+	84,  // 134: aleth.v1.GovernorService.Consume:input_type -> aleth.v1.ConsumeRequest
+	85,  // 135: aleth.v1.GovernorService.State:input_type -> aleth.v1.BudgetStateRequest
+	86,  // 136: aleth.v1.GovernorService.CheckCircuit:input_type -> aleth.v1.CircuitCheckRequest
+	89,  // 137: aleth.v1.SandboxService.Execute:input_type -> aleth.v1.SandboxExecRequest
+	91,  // 138: aleth.v1.SandboxService.SignExecId:input_type -> aleth.v1.SignExecIdRequest
+	94,  // 139: aleth.v1.GatewayService.Tokenize:input_type -> aleth.v1.TokenizeRequest
+	96,  // 140: aleth.v1.GatewayService.Detokenize:input_type -> aleth.v1.DetokenizeRequest
+	98,  // 141: aleth.v1.GatewayService.ScanOutbound:input_type -> aleth.v1.ScanRequest
+	13,  // 142: aleth.v1.IngestService.Execute:output_type -> aleth.v1.EvidenceSpectrum
+	21,  // 143: aleth.v1.IngestService.ListAdapters:output_type -> aleth.v1.ListAdaptersResponse
+	23,  // 144: aleth.v1.IngestService.ValidateTool:output_type -> aleth.v1.ValidateToolResponse
+	29,  // 145: aleth.v1.PrismService.Ingest:output_type -> aleth.v1.IngestResult
+	28,  // 146: aleth.v1.PrismService.Project:output_type -> aleth.v1.ProjectedSubgraph
+	28,  // 147: aleth.v1.PrismService.SnapshotAt:output_type -> aleth.v1.ProjectedSubgraph
+	34,  // 148: aleth.v1.PrismService.CreateBranch:output_type -> aleth.v1.BranchInfo
+	36,  // 149: aleth.v1.PrismService.RollbackBranch:output_type -> aleth.v1.RollbackResult
+	38,  // 150: aleth.v1.PrismService.MergeBranch:output_type -> aleth.v1.MergeResult
+	40,  // 151: aleth.v1.ApertureService.Assemble:output_type -> aleth.v1.ContextBundle
+	43,  // 152: aleth.v1.ApertureService.Autofocus:output_type -> aleth.v1.AutofocusResult
+	51,  // 153: aleth.v1.LedgerService.Append:output_type -> aleth.v1.AppendEvidenceResult
+	49,  // 154: aleth.v1.LedgerService.ValidateAssertion:output_type -> aleth.v1.ValidateAssertionResult
+	54,  // 155: aleth.v1.LedgerService.RecordSideEffect:output_type -> aleth.v1.RecordSideEffectResult
+	56,  // 156: aleth.v1.LedgerService.Reproduce:output_type -> aleth.v1.ReproduceResult
+	58,  // 157: aleth.v1.LedgerService.TraceFinding:output_type -> aleth.v1.TracedEvidenceChain
+	60,  // 158: aleth.v1.LedgerService.ReportHallucination:output_type -> aleth.v1.HallucinationState
+	62,  // 159: aleth.v1.TerminationService.RequestTermination:output_type -> aleth.v1.TerminationDecision
+	65,  // 160: aleth.v1.OrchestratorService.Plan:output_type -> aleth.v1.TaskGraph
+	68,  // 161: aleth.v1.OrchestratorService.NextReady:output_type -> aleth.v1.NextReadyResponse
+	70,  // 162: aleth.v1.OrchestratorService.ReportTaskResult:output_type -> aleth.v1.TaskUpdateResult
+	65,  // 163: aleth.v1.OrchestratorService.Refine:output_type -> aleth.v1.TaskGraph
+	73,  // 164: aleth.v1.OrchestratorService.Checkpoint:output_type -> aleth.v1.CheckpointInfo
+	75,  // 165: aleth.v1.OrchestratorService.Rewind:output_type -> aleth.v1.RewindResult
+	77,  // 166: aleth.v1.OrchestratorService.Fork:output_type -> aleth.v1.ForkResult
+	78,  // 167: aleth.v1.ScopeService.Check:output_type -> aleth.v1.ScopeCheckResult
+	27,  // 168: aleth.v1.ScopeService.LoadScope:output_type -> aleth.v1.ScopeInfo
+	83,  // 169: aleth.v1.GovernorService.Reserve:output_type -> aleth.v1.ReserveResult
+	81,  // 170: aleth.v1.GovernorService.Consume:output_type -> aleth.v1.BudgetState
+	81,  // 171: aleth.v1.GovernorService.State:output_type -> aleth.v1.BudgetState
+	87,  // 172: aleth.v1.GovernorService.CheckCircuit:output_type -> aleth.v1.CircuitState
+	90,  // 173: aleth.v1.SandboxService.Execute:output_type -> aleth.v1.SandboxExecResult
+	88,  // 174: aleth.v1.SandboxService.SignExecId:output_type -> aleth.v1.SignedExecId
+	93,  // 175: aleth.v1.GatewayService.Tokenize:output_type -> aleth.v1.TokenizeResult
+	95,  // 176: aleth.v1.GatewayService.Detokenize:output_type -> aleth.v1.DetokenizeResult
+	97,  // 177: aleth.v1.GatewayService.ScanOutbound:output_type -> aleth.v1.ScanResult
+	142, // [142:178] is the sub-list for method output_type
+	106, // [106:142] is the sub-list for method input_type
+	106, // [106:106] is the sub-list for extension type_name
+	106, // [106:106] is the sub-list for extension extendee
+	0,   // [0:106] is the sub-list for field type_name
 }
 
 func init() { file_aleth_v1_aletheia_proto_init() }
