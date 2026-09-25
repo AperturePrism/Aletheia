@@ -48,7 +48,7 @@ echo "  [3/3] grpcio-tools → agents/src/aletheia/gen"
 
 # 生成出来的包目录需要 __init__.py 才能被 import。
 # protoc 不生成它们（它只管 .py 本体），这一步是 Python 侧的要求。
-find agents/src/aletheia/gen -type d | while read -r d; do
+ find agents/src/aletheia/gen -type d -not -path "*__pycache__*" | while read -r d; do
     [ -f "$d/__init__.py" ] || touch "$d/__init__.py"
 done
 
