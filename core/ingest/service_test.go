@@ -14,6 +14,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	alethv1 "github.com/AperturePrism/aleth/core/api/aleth/v1"
+	"github.com/AperturePrism/aleth/core/gateway"
+	"github.com/AperturePrism/aleth/core/scopekernel"
 )
 
 // ---- 测试桩：只 mock 外部边界（Scope/Gateway/Sandbox），被验证对象
@@ -415,4 +417,74 @@ func assertGRPC(t *testing.T, err error, want codes.Code, wantEC alethv1.ErrorCo
 		}
 	}
 	t.Fatalf("no alethv1.Error detail in %v (details: %d)", err, len(details))
+}
+
+// TestExecuteWithRealScopeKernel 把 I3 的真实 Scope Kernel（而非测试桩）
+// 注入 Deps：越界 target 在 Execute 入口被拒（Q4 语义在 Ingest 层的验证）。
+// scopekernel 不依赖 ingest —— 无 import cycle。
+func TestExecuteWithRealScopeKernel(t *testing.T) {
+	scope, err := scopekernel.ParseScope([]byte(`
+targets:
+  include:
+    - cidr: "10.40.23.0/24"
+  exclude:
+    - cidr: "10.40.23.128/25"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kernel := scopekernel.NewKernel(scope, nil, scopekernel.RateLimit{PerMinute: 1000})
+	gw := gateway.NewGateway()
+	c, _ := NewCatalog(nmapAdapterForTest())
+	store, _ := NewRawStore(t.TempDir())
+	svc := NewService(c, Deps{
+		Scope:        realScopeChecker{kernel},
+		Gateway:      realGateway{gw},
+		VersionProbe: probeOK,
+	}, store)
+
+	// 界内 → 通过 scope 校验，走到 Sandbox 依赖（I3 未交付）→ 显式
+	// UPSTREAM_UNAVAILABLE（不是 SCOPE_VIOLATION）—— 范围校验与执行
+	// 依赖的失败必须可区分。
+	_, err = svc.Execute(context.Background(), &alethv1.ToolRequest{
+		ToolName: "nmap", Params: map[string]string{"target": "10.40.23.5"},
+	})
+	assertGRPC(t, err, codes.Unavailable, alethv1.ErrorCode_UPSTREAM_UNAVAILABLE)
+
+	// 越界（exclude 段）→ SCOPE_VIOLATION。
+	_, err = svc.Execute(context.Background(), &alethv1.ToolRequest{
+		ToolName: "nmap", Params: map[string]string{"target": "10.40.23.200"},
+	})
+	assertGRPC(t, err, codes.PermissionDenied, alethv1.ErrorCode_SCOPE_VIOLATION)
+
+	// 默认拒绝（不在任何规则里）。
+	_, err = svc.Execute(context.Background(), &alethv1.ToolRequest{
+		ToolName: "nmap", Params: map[string]string{"target": "192.0.2.1"},
+	})
+	assertGRPC(t, err, codes.PermissionDenied, alethv1.ErrorCode_SCOPE_VIOLATION)
+}
+
+// realScopeChecker/realGateway 是 core/ingest.ScopeChecker/PrivacyGateway
+// 的真实组件适配（与 cmd/alethd/adapters.go 同构；此处内联以保持测试自足）。
+type realScopeChecker struct{ kernel *scopekernel.Kernel }
+
+func (a realScopeChecker) CheckToolParam(_ context.Context, _, target string) (string, error) {
+	v := a.kernel.Check("test-session", target)
+	if !v.Allowed {
+		return "", ErrScopeViolation
+	}
+	return v.DecisionID, nil
+}
+
+type realGateway struct{ gw *gateway.Gateway }
+
+func (a realGateway) TokenizeParams(_ context.Context, _ string, params map[string]string) (map[string]string, error) {
+	return params, nil
+}
+
+func (a realGateway) ScanOutbound(_ context.Context, _ string, raw []byte) error {
+	if len(a.gw.ScanOutbound(string(raw))) > 0 {
+		return ErrPrivacyLeak
+	}
+	return nil
 }

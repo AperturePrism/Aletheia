@@ -33,11 +33,13 @@ import (
 	"github.com/AperturePrism/aleth/core/checkpoint"
 	"github.com/AperturePrism/aleth/core/config"
 	"github.com/AperturePrism/aleth/core/focalplane"
+	"github.com/AperturePrism/aleth/core/gateway"
 	"github.com/AperturePrism/aleth/core/ingest"
 	"github.com/AperturePrism/aleth/core/ingest/httpx"
 	"github.com/AperturePrism/aleth/core/ingest/nmap"
 	"github.com/AperturePrism/aleth/core/ingest/nuclei"
 	"github.com/AperturePrism/aleth/core/log"
+	"github.com/AperturePrism/aleth/core/scopekernel"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -227,10 +229,34 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 		logger.Error("cannot assemble tool adapters", zapErr(err))
 		return errRuntime{err: err}
 	}
-	registry.Ingest = ingest.NewService(ingestCatalog, ingest.Deps{}, rawStore)
-	logger.Info("ingest service wired",
-		zap.Strings("adapters", ingestCatalog.Names()),
-		zap.Strings("pending_deps", []string{"scope(I3)", "gateway(I3)", "sandbox(I3)"}))
+	// I3（04 §4）：授权凭证有效时，Scope Kernel 与 Privacy Gateway 真实接入
+	// Ingest 的执行前置依赖；ScopeService 同步注册（registry.Scope）。
+	// Sandbox 依赖仍缺位（I3 清单未含容器编排）—— Execute 在该场景显式
+	// UPSTREAM_UNAVAILABLE（I1 语义），不存在绕过校验的执行路径。
+	if cfg.Authorization.RoePath != "" {
+		scope, err := scopekernel.ParseScopeFile(cfg.Authorization.RoePath)
+		if err != nil {
+			logger.Error("cannot parse roe scope", zapErr(err))
+			return errConfig{err: err}
+		}
+		kernel := scopekernel.NewKernel(scope, netResolverAdapter{net.DefaultResolver}, scopekernel.RateLimit{PerMinute: 120})
+		gw := gateway.NewGateway()
+		registry.Ingest = ingest.NewService(ingestCatalog, ingest.Deps{
+			Scope:   scopeCheckerAdapter{kernel: kernel},
+			Gateway: gatewayAdapter{gateway: gw},
+		}, rawStore)
+		registry.Scope = scopekernel.NewServer(kernel)
+		logger.Info("scope kernel + privacy gateway wired",
+			zap.Int("include_rules", len(scope.Include)),
+			zap.Int("exclude_rules", len(scope.Exclude)))
+	} else {
+		// 08 §1.1：无凭证拒绝启动发生在更早的 Authorization Anchor 步骤；
+		// 能到这里说明凭证已校验，RoePath 为空只可能出现在测试装配形态。
+		registry.Ingest = ingest.NewService(ingestCatalog, ingest.Deps{}, rawStore)
+		logger.Info("ingest service wired",
+			zap.Strings("adapters", ingestCatalog.Names()),
+			zap.Strings("pending_deps", []string{"gateway", "sandbox"}))
+	}
 
 	// I2（04 §4）：LedgerService 经 focalplane 代理转发到 Python 侧实现。
 	// focalplane server 未配置/未运行时保持 UNIMPLEMENTED 或显式
