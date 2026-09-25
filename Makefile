@@ -246,6 +246,10 @@ check-no-bypass: ## 10 §3 P3 检测：禁止 = CONFIRMED 直赋、except: pass�
 check-iteration-docs: ## docs/09 §10 第 9、10 项：交接文档与自检报告齐全
 	@bash scripts/check-iteration-docs.sh --all
 
+.PHONY: check-handoff-prompt
+check-handoff-prompt: ## 接手 Prompt 时效性：HEAD/tag 未脱节、正文围栏完整
+	@bash scripts/check-handoff-prompt.sh
+
 .PHONY: check-governance-guard
 check-governance-guard: ## docs/11 §5 裁决护栏：治理模型未被指令文档放宽
 	@bash scripts/check-governance-guard.sh
@@ -284,7 +288,7 @@ dev: ## 并行启动 alethd 与 vite dev server（开发用）
 # ============================================================================
 
 .PHONY: gate
-gate: build test lint check-gen-fresh check-frontend-credentials check-loopback check-no-bypass check-iteration-docs check-governance-guard ## 全部门禁（Q1/Q7/Q10–Q14 + P3 + 交付物 + 治理护栏）
+gate: build test lint check-gen-fresh check-frontend-credentials check-loopback check-no-bypass check-iteration-docs check-governance-guard check-handoff-prompt ## 全部门禁（Q1/Q7/Q10–Q14 + P3 + 交付物 + 治理护栏 + 接手 Prompt 时效）
 	@echo ""
 	@echo "全部门禁通过。（注意：Q3/Q4/Q5/Q6/Q8/Q9 见 .github/workflows/ci.yml 末尾的补齐计划）"
 

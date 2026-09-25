@@ -156,6 +156,11 @@ jobs:
       - name: Governance guard (docs/11 §5)
         run: bash scripts/check-governance-guard.sh
 
+      # 接手 Prompt 时效性。缺失或 HEAD/tag 脱节会让人照着过期计划开工，
+      # 而那份文档看起来非常可信 —— 比缺失更危险。
+      - name: Handoff prompt freshness
+        run: bash scripts/check-handoff-prompt.sh
+
   # ==========================================================================
   # Job 5: WebUI 嵌入冒烟（Q11）
   # ==========================================================================
