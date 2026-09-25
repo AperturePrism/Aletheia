@@ -32,6 +32,7 @@ import (
 	"github.com/AperturePrism/aleth/core/api/server"
 	"github.com/AperturePrism/aleth/core/checkpoint"
 	"github.com/AperturePrism/aleth/core/config"
+	"github.com/AperturePrism/aleth/core/focalplane"
 	"github.com/AperturePrism/aleth/core/ingest"
 	"github.com/AperturePrism/aleth/core/ingest/httpx"
 	"github.com/AperturePrism/aleth/core/ingest/nmap"
@@ -230,6 +231,21 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	logger.Info("ingest service wired",
 		zap.Strings("adapters", ingestCatalog.Names()),
 		zap.Strings("pending_deps", []string{"scope(I3)", "gateway(I3)", "sandbox(I3)"}))
+
+	// I2（04 §4）：LedgerService 经 focalplane 代理转发到 Python 侧实现。
+	// focalplane server 未配置/未运行时保持 UNIMPLEMENTED 或显式
+	// UPSTREAM_UNAVAILABLE（fail-closed）—— 账本不可用时绝不假装校验通过。
+	if cfg.Focalplane.Addr != "" {
+		proxy, err := focalplane.NewProxy(cfg.Focalplane.Addr)
+		if err != nil {
+			logger.Error("cannot wire focalplane proxy", zapErr(err))
+			return errRuntime{err: err}
+		}
+		registry.Ledger = proxy
+		logger.Info("ledger proxy wired", zap.String("focalplane_addr", cfg.Focalplane.Addr))
+	} else {
+		logger.Info("focalplane not configured; LedgerService stays UNIMPLEMENTED (I2)")
+	}
 
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(

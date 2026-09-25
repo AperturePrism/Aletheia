@@ -1,0 +1,9 @@
+# 仓库内文本统一 LF，工作区也不做 CRLF 转换。
+# 根因：core.autocrlf=true 把 fixtures 在工作区转成 CRLF，测试内的
+# 行尾替换二次叠加（\r\r\n）导致解析结构变化 —— 解析器测试、
+# 确定性哈希、Q6 字节级比对都依赖字节稳定的工作区。
+* text=auto eol=lf
+# 二进制与逐字节敏感数据：任何转换都禁止。
+tests/parsers/fixtures/** -text
+*.png -text
+*.exe -text

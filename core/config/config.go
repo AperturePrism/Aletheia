@@ -104,6 +104,10 @@ type Config struct {
 	// 本项目不实现任何向外部发送数据的代码路径；此字段仅为将来预留
 	// 并在此显式记录"默认关闭"这一决策。
 	Telemetry TelemetryConfig `mapstructure:"telemetry"`
+
+	// Focalplane 内部 LedgerService 通道（I2）。仅回环 —— 校验见
+	// validateFocalplane；L3 实现在 Python（agents focalplane），alethd 转发。
+	Focalplane FocalplaneConfig `mapstructure:"focalplane"`
 }
 
 // ServerConfig 监听与 TLS。
@@ -184,6 +188,13 @@ type TelemetryConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 
+// FocalplaneConfig 是内部 LedgerService 通道（I2）。
+type FocalplaneConfig struct {
+	// Addr focalplane gRPC server 的回环地址。空串 = 未配置，
+	// alethd 不装配 Ledger 代理（LedgerService 保持 UNIMPLEMENTED）。
+	Addr string `mapstructure:"addr"`
+}
+
 // Default 返回安全默认配置。
 //
 // 关键点：默认值是"最小权限 + 最小暴露"，不是"最方便"。
@@ -213,6 +224,10 @@ func Default() *Config {
 			NoExternalTransmission: &noExt,
 		},
 		Telemetry: TelemetryConfig{Enabled: false},
+		// Focalplane.Addr 默认留空：I2 的 focalplane server 是独立进程
+		//（手动/编排启动）。未配置时 alethd 不装配 Ledger 代理，
+		// LedgerService 显式 UNIMPLEMENTED —— 不假装可用。
+		Focalplane: FocalplaneConfig{Addr: ""},
 	}
 }
 
