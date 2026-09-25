@@ -48,7 +48,13 @@ jobs:
     name: build & test (Q1)
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 + fetch-tags：check-handoff-prompt 校验文档引用的
+      # HEAD sha 与 tag 必须能解析（shallow clone 下必然 FAIL ——
+      # main 上 run 36099750588 的真实失败，I0 教训"本地全绿 ≠ CI 能跑"重演）。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: ./.github/actions/setup
         with:
           with-uv: "true"
@@ -78,7 +84,13 @@ jobs:
     name: contract (Q10/Q14)
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 + fetch-tags：check-handoff-prompt 校验文档引用的
+      # HEAD sha 与 tag 必须能解析（shallow clone 下必然 FAIL ——
+      # main 上 run 36099750588 的真实失败，I0 教训"本地全绿 ≠ CI 能跑"重演）。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: ./.github/actions/setup
         with:
           with-uv: "true"
@@ -103,7 +115,13 @@ jobs:
     name: lint (Q7)
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 + fetch-tags：check-handoff-prompt 校验文档引用的
+      # HEAD sha 与 tag 必须能解析（shallow clone 下必然 FAIL ——
+      # main 上 run 36099750588 的真实失败，I0 教训"本地全绿 ≠ CI 能跑"重演）。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: ./.github/actions/setup
         with:
           with-uv: "true"
@@ -123,7 +141,13 @@ jobs:
     steps:
       # 这个 job 首跑时漏了全部 setup 步骤（含 uv），第二次跑才暴露。
       # 现在统一走 composite action，不会再漏。
+      # fetch-depth: 0 + fetch-tags：check-handoff-prompt 校验文档引用的
+      # HEAD sha 与 tag 必须能解析（shallow clone 下必然 FAIL ——
+      # main 上 run 36099750588 的真实失败，I0 教训"本地全绿 ≠ CI 能跑"重演）。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: ./.github/actions/setup
         with:
           with-uv: "true"
@@ -168,7 +192,13 @@ jobs:
     name: WebUI embed smoke (Q11)
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 + fetch-tags：check-handoff-prompt 校验文档引用的
+      # HEAD sha 与 tag 必须能解析（shallow clone 下必然 FAIL ——
+      # main 上 run 36099750588 的真实失败，I0 教训"本地全绿 ≠ CI 能跑"重演）。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: ./.github/actions/setup
 
       # make build 自带 web-build → env-web 依赖，会自动装 web/ 的前端依赖。
@@ -187,7 +217,13 @@ jobs:
     name: coverage (Q2)
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 + fetch-tags：check-handoff-prompt 校验文档引用的
+      # HEAD sha 与 tag 必须能解析（shallow clone 下必然 FAIL ——
+      # main 上 run 36099750588 的真实失败，I0 教训"本地全绿 ≠ CI 能跑"重演）。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: ./.github/actions/setup
         with:
           with-uv: "true"

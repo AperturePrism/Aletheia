@@ -31,6 +31,27 @@ fail_msg() {
     fail=1
 }
 warn() { printf '  \033[33mstale\033[0m %s\n' "$1"; }
+note() {
+    printf '  \033[36mnote\033[0m %s\n' "$1"
+    shift
+    printf '%s\n' "$@" | sed 's/^/         /'
+}
+
+# ---- 0. 环境探测：shallow clone / tags 未 fetch 时降级 ----
+#
+# HEAD/tag 引用校验的合法前提是**完整 git 上下文**。CI 的 actions/checkout
+# 默认 fetch-depth=1 且不 fetch tags —— main 上 run 36099750588 的失败即
+# 源于此：文档引用的 commit/tag 在 runner 上"不存在"，被误判为文档错误。
+# （I0 教训"本地全绿 ≠ CI 能跑"的又一次重演。）
+#
+# 降级不是永真化：
+#   · 判据是**环境信号**（shallow / refs/tags 为空），不是"校验失败"；
+#   · 降级输出显式声明"此环境无法校验"，与 check-governance-guard 的
+#     note 段同构（10 §0 硬要求 3：无法验证的必须显式声明）；
+#   · ci.yml 已改为 fetch-depth: 0 + fetch-tags: true —— CI 环境修复后
+#     走严格路径；任何完整 clone 上校验立即恢复严格。
+is_shallow="$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)"
+tag_count="$(git tag -l 2>/dev/null | wc -l | tr -d ' ')"
 
 echo "== 接手 Prompt 时效性检查 =="
 
@@ -55,7 +76,10 @@ fi
 
 # ---- 2. HEAD sha 必须是真实 commit ----
 doc_head=$(grep -oE '当前 HEAD：`[0-9a-f]{7,40}`' "$DOC" | grep -oE '[0-9a-f]{7,40}' | head -1)
-if [ -z "$doc_head" ]; then
+if [ "$is_shallow" = "true" ]; then
+    note "shallow clone 无法校验 HEAD 引用（fetch-depth 截断了历史）" \
+         "请在完整 clone（fetch-depth: 0）上复核；CI 已配置完整 checkout"
+elif [ -z "$doc_head" ]; then
     warn "未在文档中找到「当前 HEAD：\`<sha>\`」—— 无法校验时效性"
 else
     if git cat-file -e "${doc_head}^{commit}" 2>/dev/null; then
@@ -76,7 +100,10 @@ fi
 
 # ---- 3. tag 必须真实存在 ----
 doc_tag=$(grep -oE '最新 tag：`[^`]+`' "$DOC" | sed 's/.*：`//; s/`$//' | head -1)
-if [ -z "$doc_tag" ]; then
+if [ "$tag_count" -eq 0 ]; then
+    note "仓库无任何 tag 引用（可能未 fetch tags）—— 无法校验文档中的 tag" \
+         "请在完整 clone 上复核；仓库一旦存在 tag，此校验立即恢复严格"
+elif [ -z "$doc_tag" ]; then
     warn "未在文档中找到「最新 tag」—— 无法校验"
 else
     if git rev-parse -q --verify "refs/tags/$doc_tag" >/dev/null 2>&1; then
