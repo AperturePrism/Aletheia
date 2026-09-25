@@ -136,6 +136,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# gRPC servicer 的方法名（PascalCase）与 context 参数由框架约定，
+# 不适用 PEP8 命名与"每个参数都要用"的检查（agents/gen 生成物已豁免，
+# 这里豁免手写 servicer —— 同一约定）。
+"agents/src/aletheia/focalplane/server.py" = ["N802", "ARG002"]
 # 测试代码允许断言、子进程、临时路径。
 "tests/**/*.py" = ["S101", "S105", "S106", "S108", "ARG001", "ARG002"]
 "agents/**/tests/**/*.py" = ["S101", "S105", "S106", "S108", "ARG001", "ARG002"]
