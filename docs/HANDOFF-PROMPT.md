@@ -18,7 +18,7 @@
 你将接手 **Aletheia** 的开发工作。这是一个以「可证明性」为第一原则的自主渗透测试系统：
 结论必须由证据显现，不可由模型声称。
 
-**仓库**：`github.com/AperturePrism/Aletheia`（当前 HEAD：`d90590e`，最新 tag：`v0.1.0`）
+**仓库**：`github.com/AperturePrism/Aletheia`（当前 HEAD：`5f4a581`，最新 tag：`v0.3.0`）
 **技术栈**：Go（L0 + 横切 + CLI + daemon）/ Python（L1–L4 + Agent）/ React + TS（WebUI）
 
 ---
