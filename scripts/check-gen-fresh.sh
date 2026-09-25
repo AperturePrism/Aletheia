@@ -37,7 +37,7 @@ before=""
 for d in "${GEN_DIRS[@]}"; do
     [ -d "$d" ] || continue
     # 按路径排序后再哈希，保证与文件系统遍历顺序无关。
-    files=$(find "$d" -type f | LC_ALL=C sort)
+    files=$( find "$d" -type f -not -path "*__pycache__*" | LC_ALL=C sort)
     for f in $files; do
         before="$before$(md5sum "$f" 2>/dev/null)"$'\n'
     done
@@ -56,7 +56,7 @@ fi
 after=""
 for d in "${GEN_DIRS[@]}"; do
     [ -d "$d" ] || continue
-    files=$(find "$d" -type f | LC_ALL=C sort)
+    files=$( find "$d" -type f -not -path "*__pycache__*" | LC_ALL=C sort)
     for f in $files; do
         after="$after$(md5sum "$f" 2>/dev/null)"$'\n'
     done
