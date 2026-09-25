@@ -9,7 +9,48 @@
 
 ## [Unreleased]
 
-### I1 · M1 光谱摄入（2026-09-25）
+### I2 · M4 证据账本与四道闸门（2026-09-25）
+
+**Added**
+- **Evidence Ledger**（`agents/src/aletheia/focalplane/ledger.py`）：SQLite WAL
+  append-only + `prev_hash/self_hash` 哈希链（域分隔 + 长度前缀 + 确定性 proto
+  序列化）；账本级 fail-closed 校验（拒绝调用方自带哈希/时间戳 —— 时间戳
+  权威在账本）；幂等 = 重放语义（同 ID 内容不同 = 伪造信号，幂等不得吞掉）；
+  `verify_chain` 检出中间记录篡改/删除的断点（07 §T4.3）。
+- **G-1 执行绑定**（`execverifier.py`）：Ed25519 独立验签进入 append 路径
+  （`Ledger` 构造器强制注入 verifier —— 不存在不验签的账本实例）；
+  签名输入域分离（`aleth/exec-id/v1`），M4 只持 Sandbox 公钥（07 §T4.1）。
+- **G-2/G-3/G-4 与状态机**（`focalplane.py`）：G-2 失败 → REJECTED（原因记录
+  供 Refiner）；G-3 失败封顶 CANDIDATE（弱证据是待补强不是已证伪）；
+  G-4 显式 pending（I7）—— CONFIRMED 跃迁代码就绪但 I2 不可达；
+  transition 审计（append-only）+ CONFIRMED→CANDIDATE 不可逆约束。
+- **G-3 强证据模式库**（`patterns.py`）：最小可信集，每条带出处注释；
+  `audit_text` 反例审计器 —— searchsploit「Shellcodes」等 D1 反例
+  在任何 kind 下零命中。
+- **归因双向校验**：证据首引绑定 target；异 target 引用 → 张冠李戴检出 →
+  ATTRIBUTION_MISMATCH + 冲突断言记 HYPOTHESIS + 既有引用者标 needs_review
+  + P0 告警回调（04 §I2 DoD③）。
+- **幻觉双熔断**：per-agent 阈值（3）+ session 占比（10%，最小样本 10）。
+- **LedgerService gRPC server**（Python）+ **Go 转发代理**（`core/focalplane/`）
+  + registry 接线；server 未运行 → 显式 UPSTREAM_UNAVAILABLE。
+- **Q3 红线进 CI**：`tests/redline/test_q3_forged_evidence.py`（三类注入 ×
+  对抗变体，14 用例）+ ci.yml `redline (Q3)` job。
+- **前端证据链视图**（06 页面 4，★核心视图）：finding → assertions →
+  evidence → side_effects 全链 + 交叉引用双向渲染 + 归因状态条。
+
+**Changed**
+- **契约（contract:）**：`AppendEvidenceRequest.signed_exec_id`（[derived]
+  扩展；G-1 验签输入，frozen 面零改动；双人 review 待项目负责人复核）。
+- 运行时依赖从零到二：`grpcio`（显式化）、`cryptography`（Ed25519，
+  非对称是 T4.1 防御前提）—— 四项说明在 pyproject 注释。
+- ci.yml：coverage job 收紧（I0 遗留的 continue-on-error 移除）；
+  新增 redline (Q3) job。
+
+**Fixed**
+- `.gitattributes` 缺失 + autocrlf 把工作区文件 CRLF 化（gofmt/解析器
+  测试受扰）—— 全仓统一 LF + fixtures 禁转换。
+
+### I1 · M1 光谱摄入（2026-09-25） · M1 光谱摄入（2026-09-25）
 
 **Added**
 - **参数化适配器框架**：`core/ingest/adapter.go` —— Adapter 统一接口（M1 §4.1）、
