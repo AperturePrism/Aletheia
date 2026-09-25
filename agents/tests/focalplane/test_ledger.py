@@ -324,17 +324,42 @@ class TestNoMutationPath:
     UPDATE/DELETE，这条测试先红 —— 而不是等一次安全审计才发现。
     """
 
-    def test_no_sql_mutation_statements(self) -> None:
+    # append-only 审计面：这些表不允许任何 UPDATE/DELETE（07 §T4.3）。
+    # findings 是状态机当前态，允许 UPDATE —— 但每次变更必然伴随一条
+    # finding_transitions 审计（由 FocalPlane.transition 强制，测试覆盖）。
+    _AUDIT_TABLES = (
+        "evidence",
+        "finding_transitions",
+        "evidence_bindings",
+        "side_effects",
+        "hallucinations",
+    )
+
+    def test_no_mutation_of_audit_tables(self) -> None:
+        tables = "|".join(self._AUDIT_TABLES)
         forbidden = re.compile(
-            r"(UPDATE\s+\w+|DELETE\s+FROM|DROP\s+TABLE|ALTER\s+TABLE|REPLACE\s+INTO)",
+            r"(UPDATE|DELETE"
+            + chr(92)
+            + "s+FROM|REPLACE"
+            + chr(92)
+            + "s+INTO)"
+            + chr(92)
+            + "s+("
+            + tables
+            + r")"
+            + chr(92)
+            + "b",
             re.IGNORECASE,
+        )
+        structural = re.compile(
+            r"(DROP" + chr(92) + "s+TABLE|ALTER" + chr(92) + "s+TABLE)", re.IGNORECASE
         )
         offenders = []
         for py in sorted(FOCALPLANE_DIR.glob("*.py")):
             for i, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1):
-                if forbidden.search(line):
+                if forbidden.search(line) or structural.search(line):
                     offenders.append(f"{py.name}:{i}: {line.strip()}")
-        assert not offenders, "账本源码出现 SQL 变更语句：\n" + "\n".join(offenders)
+        assert not offenders, "审计表出现 SQL 变更语句：" + chr(10) + chr(10).join(offenders)
 
     def test_public_surface_has_no_mutation_apis(self) -> None:
         public = [n for n in dir(Ledger) if not n.startswith("_")]
