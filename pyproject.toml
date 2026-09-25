@@ -17,8 +17,23 @@ name = "aletheia"
 version = "0.1.0"
 description = "Aletheia —— 以「可证明性」为第一原则的自主渗透测试系统（L1–L4 Python 侧）"
 requires-python = ">=3.12"
-# I0：无运行时依赖。
-dependencies = []
+# 运行时依赖按 docs/09 §5 #3（用途 / 许可证 / 维护活跃度 / 替代方案）逐条说明。
+dependencies = [
+    # grpcio —— gRPC 运行时。Apache-2.0，Google/Linux 基金会维护，CNCF 项目。
+    # 用途：focalplane 的 LedgerService gRPC server（I2 接线，05 §5.3）。
+    # 此前它作为 grpcio-tools 的传递依赖已存在于环境，此处显式声明
+    # 是因为我们直接 import 它（依赖隐式化是供应链盲区）。
+    # 替代方案：HTTP+JSON 自研通道（不采纳 —— 04 §I0 关键决策①定死 gRPC）。
+    "grpcio>=1.68,<2",
+
+    # cryptography —— Ed25519 验签。Apache-2.0 / BSD-3，pyca 维护，Python 密码学事实标准。
+    # 用途：G-1 执行绑定的独立验签（modules/M4 §4.2、07 §T4.1：私钥不出 Sandbox，
+    # M4 只持公钥）。选非对称是防御前提 —— HMAC 等对称方案会让验签方
+    # 同时持有签发能力，等于撤销「私钥不出 Sandbox」的约束。
+    # 替代方案：pynacl（libsodium 绑定，能力等同但生态更窄）；
+    #   纯 Python ed25519 实现（不采纳 —— 慢且无专业审计背书）。
+    "cryptography>=44,<47",
+]
 
 # 开发与测试工具链。
 # 拆成 optional-dependencies 与 dependency-groups 两份是有意的：

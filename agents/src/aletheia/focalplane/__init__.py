@@ -6,9 +6,16 @@ T4.1–T4.8：账本存储 + 哈希链、G-1/G-2/G-3 闸门、Finding 状态机�
 G-4 独立复现与 Termination Arbiter 属 I7（T4.9–T4.12）。
 """
 
+from aletheia.focalplane.execverifier import (
+    Ed25519Verifier,
+    ExecVerifier,
+    GateVerdict,
+    exec_id_sign_input,
+)
 from aletheia.focalplane.ledger import (
     ChainReport,
     DuplicateEvidenceError,
+    ExecBindingError,
     InvalidEvidenceError,
     Ledger,
     LedgerError,
@@ -18,8 +25,13 @@ from aletheia.focalplane.ledger import (
 __all__ = [
     "ChainReport",
     "DuplicateEvidenceError",
+    "Ed25519Verifier",
+    "ExecBindingError",
+    "ExecVerifier",
+    "GateVerdict",
     "InvalidEvidenceError",
     "Ledger",
     "LedgerError",
     "compute_self_hash",
+    "exec_id_sign_input",
 ]
