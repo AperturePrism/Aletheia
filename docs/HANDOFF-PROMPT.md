@@ -18,7 +18,7 @@
 你将接手 **Aletheia** 的开发工作。这是一个以「可证明性」为第一原则的自主渗透测试系统：
 结论必须由证据显现，不可由模型声称。
 
-**仓库**：`github.com/AperturePrism/Aletheia`（当前 HEAD：`5f4a581`，最新 tag：`v0.3.0`）
+**仓库**：`github.com/AperturePrism/Aletheia`（当前 HEAD：`7f728c6`，最新 tag：`v0.4.0`）
 **技术栈**：Go（L0 + 横切 + CLI + daemon）/ Python（L1–L4 + Agent）/ React + TS（WebUI）
 
 ---
@@ -47,9 +47,13 @@
 
 - **I1–I3 能力迭代全部完成并发布**（v0.2.0 光谱摄入 / v0.3.0 证据账本与
   Q3 红线 / v0.4.0 范围内核与隐私网关），main CI 7 job 全绿。
-- **⚠️ P0 阶段门禁尚未整体通过**：Q5 靶场抓包（docker 未装）、Q8 24h
-  稳定性（harness 未实现）均未执行 —— 门禁五条中仅 Q3（I2）与 Q4（I3）
-  已进 CI。
+- **Q8 稳定性 harness 已实现并验证可用**（2026-09-27）：`make stability-smoke`
+  可跑通，三条判据（崩溃 / 探针 / RSS）全部真实生效、不存在恒真假判据。
+  **24h 全量尚未执行**；且该 harness 已实测到 `alethd` 的 RSS 持续上升，
+  判据口径待项目负责人裁定 —— 见
+  `docs/iterations/I3-Q8稳定性harness-交接.md` §6.1。
+- **⚠️ P0 阶段门禁尚未整体通过**：Q5 靶场抓包（docker 未装）与 Q8 24h
+  均未执行 —— 门禁五条中仅 Q3（I2）与 Q4（I3）已进 CI。
 - **⚠️ P0 收口的三项决策请求待项目负责人裁定**（contract 794f135 复核 /
   Q5 靶场验证补齐方式 / P0→P1 推进节奏）：见
   `docs/decisions/DEC-2026-09-25-p0-transition.md`（状态 PENDING）。

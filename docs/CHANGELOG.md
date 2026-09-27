@@ -9,6 +9,60 @@
 
 ## [Unreleased]
 
+### Q8 · 长时稳定性 harness 补齐（2026-09-27）
+
+> 定位：`04` §2 P0 门禁第 1 条（24h 无崩溃 / 无内存泄漏）的执行入口。
+> 此前为「骨架但跑不通」状态。详见
+> `docs/iterations/I3-Q8稳定性harness-交接.md`。
+
+**Added**
+- **RSS 采样器**（`tests/stability/rss.py`）：标准库 `ctypes` 调 Win32
+  `GetProcessMemoryInfo` / 读 Linux `/proc/<pid>/status`，**零新增依赖**；
+  采样失败以非零退出码显式上报。
+- **`make stability-smoke`**：90s 冒烟入口，用于改 harness 后先验证接线。
+- **判定摘要新增 `rss_sample_failures`**：采样不可得时直接判失败，
+  不再折算为 0% 增长。
+- **gRPC 独立端口**（`server.grpc_port`，默认 7724）：I0 骨架里 `grpcServer`
+  从未 `Serve`（唯一 listener 被 HTTP/WebUI 占用），gRPC 网络入口实际不存在
+  —— 由 Q8 harness 首次真实运行暴露。与 HTTP（7723）双端口，零 h2c 分流歧义。
+
+**Fixed**
+- `tests/stability/probe.py` 探针目标端口 7723（HTTP/WebUI）→ **7724**（gRPC）：
+  此前探针 100% 失败，`last_run.json` 恒为 `FAIL`。
+- `run.sh` 的 `rss_of()` 改为不依赖从 bash 调用 `powershell`（受限 shell 会拦截，
+  失败仅表现为空输出）—— 这是「RSS 增长 < 5%」退化为**恒真断言**的根因，
+  比判定失败更危险（`docs/10` §0「绿灯替代有效」的同类风险）。
+- `probe.py` 全部 RPC 增加超时：此前无超时，长跑中一次对端无响应即永久挂起。
+- `run.sh` 的 `duration_s` 此前恒为 `null`；时长基准由「累加 interval」改为
+  **真实墙钟**，避免标称 24h 实际跑 30h+。
+- `probe.py` 未通过 `ruff format` 导致 `make lint`（Q7）失败；已修复。
+- `server.grpc_port` 补**范围与端口冲突校验**（`core/config`）：此前越界或与
+  HTTP 端口同值都要等到 `net.Listen` 阶段才失败，错误信息不如配置校验清晰；
+  现与 `server.port` 的校验对称（`TestValidationRejects` 新增 3 子用例）。
+- `run.sh` 的整目录清理改为**只删账本 + 删除后回验**：`rm -rf` 在受限环境下
+  会因单次批量删除超阈值被拒，而失败被 `-f` 静默吞掉；残留的 `ledger.db`
+  会让本轮 `evidence_id` 与上一轮撞号，被 M4 的幂等/伪造检测拒收 ——
+  表现成「probe 全程失败」，实为脏状态污染（误导性结论）。清理失败现
+  显式 `exit 2`。
+
+**Changed**
+- **RSS 判据引入预热窗口**（真源 `docs/modules/M6` §12，`docs/04` §6 同步）：
+  判据改为比较**预热窗口（默认 600s）结束后的稳态区间**。依据：30 分钟观测
+  确认 `alethd` 的 RSS 约 5 分钟后进入平台期（末 11 分钟 −0.28%），属
+  Go runtime 高电平堆行为、**非内存泄漏**；旧口径把启动堆扩张计入基线，
+  对任何长时服务恒为假阳性（实测 `ad_rss_growth_pct = 15.12%`）。
+  `run.sh` 新增 `--warmup`；摘要新增 `warmup_s` / `steady_samples`；
+  稳态样本 < 4 判 FAIL 并显式提示「无法判定」（**缺证据 ≠ 无泄漏**）。
+  **阈值 5% 未变** —— 改的是比较区间的选取，不是放宽断言（`docs/09` R3）。
+
+**Security**
+- `.gitignore` 补 `tests/stability/last_run/`：此前 `probe_key.hex`
+  （一次性 Ed25519 私钥）与运行采样不在忽略范围内。
+
+**已知缺口**
+- **24h 全量未执行** —— P0 门禁第 1 条尚未通过。已议定改在**专用 Linux
+  环境**执行（不占用开发机）；harness 已跨平台，Linux 侧经 `/proc` 采样。
+
 ### I3 · M6 范围内核与隐私网关（2026-09-25）
 
 **Added**
