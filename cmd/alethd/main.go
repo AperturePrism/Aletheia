@@ -320,6 +320,21 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 
 	errCh := make(chan error, 2)
 
+	// I3：gRPC 服务独立端口 Serve —— I0 骨架里 grpcServer 从未 Serve
+	//（唯一 listener 被 HTTP/WebUI 占用），gRPC 网络入口实际不存在，
+	// 由 stability harness 真实运行时暴露。与 HTTP/WebUI 分端口零歧义。
+	grpcLis, err := net.Listen("tcp", cfg.GRPCListenAddr())
+	if err != nil {
+		logger.Error("cannot listen grpc", zap.String("addr", cfg.GRPCListenAddr()), zapErr(err))
+		return errRuntime{err: err}
+	}
+	go func() {
+		logger.Info("grpc server listening", zap.String("addr", cfg.GRPCListenAddr()))
+		if err := grpcServer.Serve(grpcLis); err != nil {
+			errCh <- err
+		}
+	}()
+
 	go func() {
 		logger.Info("http server listening", zap.String("addr", lis.Addr().String()))
 		if err := httpServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {

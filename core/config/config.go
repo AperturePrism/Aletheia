@@ -50,6 +50,9 @@ const (
 	DefaultListenAddr = "127.0.0.1"
 
 	// DefaultListenPort 默认端口。
+	// DefaultGRPCPort gRPC 服务端口（与 HTTP/WebUI 分离，见 ServerConfig.GRPCPort）。
+	DefaultGRPCPort = 7724
+	// DefaultListenPort 默认端口。
 	DefaultListenPort = 7723
 
 	// DefaultDataDirName 数据目录名（相对工作目录）。
@@ -128,6 +131,14 @@ type ServerConfig struct {
 	// 单机模式下启动时生成一次性令牌，防本机其他进程访问。
 	// 令牌**不落普通日志**（07 §T5.1）。
 	AccessTokenFile string `mapstructure:"access_token_file"`
+
+	// GRPCPort gRPC 服务端口（I3 新增）。
+	//
+	// I0 的骨架把唯一 listener 给了 HTTP/WebUI，grpcServer 从未 Serve
+	// —— gRPC 网络入口实际不存在（I3 stability harness 真实运行时暴露）。
+	// gRPC 与 HTTP/WebUI 分端口：同一端口做 h2c/HTTP1 分流需要额外的
+	// 多路复用层，双端口零歧义。同样仅回环（Q13 由 validateServer 校验）。
+	GRPCPort int `mapstructure:"grpc_port"`
 }
 
 // StorageConfig 存储路径。
@@ -204,8 +215,9 @@ func Default() *Config {
 	return &Config{
 		Deploy: ModeSingle,
 		Server: ServerConfig{
-			Addr: DefaultListenAddr,
-			Port: DefaultListenPort,
+			Addr:     DefaultListenAddr,
+			Port:     DefaultListenPort,
+			GRPCPort: DefaultGRPCPort,
 		},
 		// EvidenceDir 留空：由 DefaultFilePaths() 基于 DataDir 派生
 		//（data_dir/evidence，05 §2.1 RawOutputRef.storage_uri）。
@@ -275,6 +287,7 @@ func setDefaults(v *viper.Viper, cfg *Config) {
 
 	v.SetDefault("server.addr", cfg.Server.Addr)
 	v.SetDefault("server.port", cfg.Server.Port)
+	v.SetDefault("server.grpc_port", cfg.Server.GRPCPort)
 	v.SetDefault("server.tls_cert_file", cfg.Server.TLSCertFile)
 	v.SetDefault("server.tls_key_file", cfg.Server.TLSKeyFile)
 	v.SetDefault("server.access_token_file", cfg.Server.AccessTokenFile)
@@ -328,6 +341,19 @@ func (c *Config) validateServer() error {
 	}
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("config: server.port %d out of range [1,65535]", c.Server.Port)
+	}
+	// grpc_port 与 port 保持对称校验：两者各自独立 Listen，越界或取值相同
+	// 都要等到 net.Listen 阶段才失败，错误信息远不如配置校验清晰。
+	// 取值相同没有合法语义 —— gRPC 与 HTTP/WebUI 是**分端口**设计
+	//（同端口做 h2c/HTTP1 分流需要额外的多路复用层，见 ServerConfig.GRPCPort）。
+	if c.Server.GRPCPort < 1 || c.Server.GRPCPort > 65535 {
+		return fmt.Errorf(
+			"config: server.grpc_port %d out of range [1,65535]", c.Server.GRPCPort)
+	}
+	if c.Server.GRPCPort == c.Server.Port {
+		return fmt.Errorf(
+			"config: server.grpc_port must differ from server.port (both are %d); "+
+				"gRPC 与 HTTP/WebUI 各自独立监听", c.Server.Port)
 	}
 
 	// 判断是否对外监听。回环地址（127.0.0.0/8、::1）视为本机。
@@ -397,6 +423,11 @@ func validateRetention(days int) error {
 // ListenAddr 返回完整的监听地址。
 func (c *Config) ListenAddr() string {
 	return net.JoinHostPort(c.Server.Addr, strconv.Itoa(c.Server.Port))
+}
+
+// GRPCListenAddr 返回 gRPC 服务的监听地址（server.addr:server.grpc_port）。
+func (c *Config) GRPCListenAddr() string {
+	return net.JoinHostPort(c.Server.Addr, strconv.Itoa(c.Server.GRPCPort))
 }
 
 // IsLoopback 判断监听地址是否仅限本机。
