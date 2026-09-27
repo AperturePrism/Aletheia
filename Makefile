@@ -14,7 +14,7 @@
 #   Q3/Q4/Q5 红线          → make redline（I2/I3 起填充）
 #   Q6 确定性              → make test-determinism
 #   Q7 Lint 无 error       → make lint
-#   Q8 长时稳定性          → make stability（默认不跑）
+#   Q8 长时稳定性          → make stability（24h，默认不跑）/ make stability-smoke（冒烟）
 #   Q9 预算熔断            → 见 I3
 #   Q10 契约一致性         → make test-contract
 #   Q11 WebUI 可嵌入       → make verify-embed
@@ -221,8 +221,18 @@ coverage: ## Q2：覆盖率（Python 阈值见 pyproject.toml；Go 解析器 ≥
 .PHONY: stability
 stability: ## Q8：长时稳定性测试（24h/143h，默认不跑）
 	@echo "Q8 稳定性测试需显式运行；时长见 docs/04 §6（P0 24h / P3 143h）。"
-	@bash tests/stability/run.sh 2>/dev/null || \
-		echo "tests/stability/run.sh 尚未实现（I0–I3 期间逐步建立）"
+	@echo "  先跑冒烟确认 harness 可用：make stability-smoke"
+	@echo "  24h 全量建议在**专用 Linux 环境**执行（长期占用本机会干扰日常使用；"
+	@echo "  harness 已跨平台：Linux 侧经 /proc 采样，无需额外适配）。"
+	@echo "  判据口径（预热窗口）见 docs/modules/M6 §12。"
+	@bash tests/stability/run.sh
+
+.PHONY: stability-smoke
+stability-smoke: ## Q8：稳定性冒烟（90s，验证 harness 接线；warmup=0 走完整判定路径）
+	@echo "注意：冒烟窗口短且 --warmup 0，判据必然因未收敛而 FAIL —— 判断 harness"
+	@echo "      是否可用请看 probe_failures / crashes / rss_sample_failures 三项是否为 0，"
+	@echo "      而不是 last_run.json 的 result 字段。稳定性结论只能由 24h 全量给出。"
+	@bash tests/stability/run.sh --duration 90 --interval 5 --warmup 0
 
 # ============================================================================
 # Lint（Q7）
