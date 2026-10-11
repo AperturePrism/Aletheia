@@ -8,6 +8,7 @@ import { NotImplementedPage } from "./views/NotImplementedPage";
 import { ScopeAuthorizationPage } from "./views/scope/ScopeAuthorizationPage";
 import { EvidenceChainPage } from "./views/evidence/EvidenceChainPage";
 import { MindMapPage } from "./views/map/MindMapPage";
+import { ApertureContextPage } from "./views/aperture/ApertureContextPage";
 import "./styles/app.css";
 
 // Aletheia WebUI 入口。
@@ -39,11 +40,10 @@ const router = createBrowserRouter([
       { path: "evidence", element: <EvidenceChainPage /> },
       { path: "evidence/:findingId", element: <EvidenceChainPage /> },
 
-      // 06 §6.1 页面 5 ★ 光圈上下文视图 —— I5
-      {
-        path: "aperture",
-        element: <NotImplementedPage pageName="光圈上下文视图 ★" iteration="I5" module="M3" coreView />,
-      },
+      // 06 §6.1 页面 5 ★ 光圈上下文视图 —— I5 交付。
+      // 本项目三个核心视图之一（docs/09 R9：不可省略）。
+      // 它让「取舍」可见，同时是 M3 召回率问题的诊断工具。
+      { path: "aperture", element: <ApertureContextPage /> },
 
       // 06 §6.1 页面 6 ★ 冲突矩阵视图 —— I8
       {

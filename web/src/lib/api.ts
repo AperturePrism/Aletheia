@@ -74,6 +74,13 @@ export const prismClient = clientFactory.create(
   channel,
 ) as unknown as PrismServiceClient;
 
+// I5：ApertureService 客户端（光圈上下文视图，06 页面 5 ★核心视图的数据源）。
+import { ApertureServiceDefinition } from "./apertureDefinition";
+export const apertureClient = clientFactory.create(
+  ApertureServiceDefinition,
+  channel,
+) as unknown as ApertureServiceClient;
+
 // 说明：05 契约当前只生成了 *ServiceClient / *ServiceImplementation 接口
 // （ts-proto 的 outputServices=nice-grpc），没有生成 ServiceDefinition 常量，
 // 而 nice-grpc-web 的 createClient() 需要它才能实例化客户端。
