@@ -7,6 +7,7 @@ import { LiveExecutionPage } from "./views/live/LiveExecutionPage";
 import { NotImplementedPage } from "./views/NotImplementedPage";
 import { ScopeAuthorizationPage } from "./views/scope/ScopeAuthorizationPage";
 import { EvidenceChainPage } from "./views/evidence/EvidenceChainPage";
+import { MindMapPage } from "./views/map/MindMapPage";
 import "./styles/app.css";
 
 // Aletheia WebUI 入口。
@@ -29,11 +30,9 @@ const router = createBrowserRouter([
       // 06 §6.1 页面 2 —— I0 交付
       { path: "live", element: <LiveExecutionPage /> },
 
-      // 06 §6.1 页面 3 · 心智地图浏览器 —— I4
-      {
-        path: "map",
-        element: <NotImplementedPage pageName="心智地图浏览器" iteration="I4" module="M2" />,
-      },
+      // 06 §6.1 页面 3 · 心智地图浏览器 —— I4 交付。
+      // M2 是系统唯一真源；此页让"系统记住了什么"可见（含时间回放）。
+      { path: "map", element: <MindMapPage /> },
 
       // 06 §6.1 页面 4 ★ 证据链视图 —— I2 交付（最小可用版）。
       // 本项目三个核心视图之一（docs/09 R9：不可省略）。

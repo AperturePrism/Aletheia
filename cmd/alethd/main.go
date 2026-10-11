@@ -50,7 +50,7 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-// 退出码约定（08 §1.3）。
+// exitOK 等退出码约定（08 §1.3）。
 //
 // 3 = 授权校验失败，4 = 范围越界熔断。这两个码是给 CI 与监控识别的，
 // 不能和普通错误混在一起。
@@ -61,6 +61,14 @@ const (
 	exitAuthFailed     = 3
 	exitScopeViolation = 4
 )
+
+// grpcWebPathPrefix 是 gRPC-Web 桥接在 HTTP 端口上的挂载前缀。
+//
+// 必须与 web/src/lib/api.ts 的 GRPC_ENDPOINT（ws://<host>/grpc）
+// 逐字符一致 —— 两侧不一致会让前端所有 RPC 表现为
+// "Transport error: Failed to fetch"，而 WebUI 恰恰是本项目主界面
+// （06 §3.3）。改动此处时同步改 api.ts，反之亦然。
+const grpcWebPathPrefix = "/grpc/"
 
 func main() {
 	if err := rootCmd().Execute(); err != nil {
@@ -325,8 +333,13 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// HTTP mux：/grpc. 给 WebSocket/HTTP+JSON 调试通道留着。
+	// HTTP mux：/grpc 走 gRPC-Web 桥接（WebUI 主界面的 RPC 通道），
+	// 其余路径回落 WebUI 静态资源。
+	//
+	// 请求分流的关键顺序：先注册更具体的 /grpc 前缀，否则 "/" 的
+	// SPA handler 会把 gRPC-Web 请求当成前端路由吃掉。
 	mux := http.NewServeMux()
+	mux.Handle(grpcWebPathPrefix, newGRPCWebHandler(grpcServer))
 	mux.Handle("/", webHandler)
 
 	httpServer := &http.Server{

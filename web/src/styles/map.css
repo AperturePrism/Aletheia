@@ -1,0 +1,221 @@
+/* 心智地图浏览器（06 §6.1 页面 3）的样式。
+ *
+ * 视觉目标：这是一张"系统记住了什么"的清单，不是装饰画。
+ * 因此优先信息密度与可扫读性 —— 实体 ID 用等宽字体、类型用色块、
+ * 属性用键值对横排，避免卡片嵌套与大片留白。 */
+
+.map-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.map-viewswitch {
+  display: flex;
+  gap: 4px;
+}
+
+.map-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.map-field input,
+.map-field select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input, transparent);
+  color: inherit;
+  font-size: 13px;
+  min-width: 140px;
+}
+
+.map-summary {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+.map-summary strong {
+  color: var(--text);
+}
+
+.map-snapshot code {
+  font-size: 11px;
+}
+
+.map-replay-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #7c5cff22;
+  color: #7c5cff;
+  font-size: 11px;
+}
+
+/* ---- 表视图 ---- */
+
+.map-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.map-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.map-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle, #8882);
+  vertical-align: top;
+}
+
+.map-eid {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.map-eid-external {
+  opacity: 0.5;
+}
+
+.map-muted {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* ---- 类型色块（七类实体）---- */
+
+.map-kind {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.k-asset { background: #2f6feb22; color: #2f6feb; }
+.k-service { background: #1f9d5522; color: #1f9d55; }
+.k-identity { background: #b8860b22; color: #b8860b; }
+.k-endpoint { background: #0aa2c022; color: #0aa2c0; }
+.k-defect { background: #d33a2c22; color: #d33a2c; }
+.k-path { background: #7c5cff22; color: #7c5cff; }
+.k-timeline { background: #8a8a8a22; color: #8a8a8a; }
+
+.map-hyp {
+  padding: 1px 7px;
+  border-radius: 3px;
+  background: #d9770622;
+  color: #d97706;
+  font-size: 11px;
+}
+
+/* ---- 属性 ---- */
+
+.map-attrs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.map-attr {
+  display: inline-flex;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.map-attr-key {
+  color: var(--text-dim);
+}
+
+.map-attr-val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+/* ---- 关系视图 ---- */
+
+.map-relgroup {
+  margin-bottom: 20px;
+}
+
+.map-relgroup h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-relcount {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--border-subtle, #8882);
+}
+
+.map-relgroup ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.map-rel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.map-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-arrow {
+  color: var(--text-dim);
+}
+
+.map-rel-focus {
+  outline: 2px solid #7c5cff55;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* CONTRADICTS 需要视觉上显著区分：它是三路融合的核心信号，
+ * 不是普通关系（05 §3.1：冲突不合并）。 */
+.map-rel-conflict {
+  background: #d33a2c11;
+  border-left: 3px solid #d33a2c;
+  padding-left: 10px;
+  border-radius: 0 3px 3px 0;
+}
+
+.map-conflict-note {
+  font-size: 11px;
+  color: #d33a2c;
+  opacity: 0.85;
+}

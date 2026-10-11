@@ -12,12 +12,15 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/AperturePrism/aleth/core/config"
 	"github.com/AperturePrism/aleth/core/log"
+	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -140,6 +143,103 @@ func newWebUIHandler() http.Handler {
 		})
 	}
 	return &spaHandler{fs: sub}
+}
+
+// newGRPCWebHandler 把 gRPC server 包装为 HTTP handler。
+//
+// 为什么需要它：WebUI 主界面通过 nice-grpc-web 调用后端（web/src/lib/api.ts
+// 的 GRPC_ENDPOINT）。浏览器不能直接说 HTTP/2 gRPC，必须由服务端提供
+// gRPC-Web 桥接。docs/06 §8 的「API 契约：从 05 的 Protobuf 生成
+// TypeScript 类型 —— 前端类型与后端契约同源」正是靠这条通道落地的。
+//
+// 先前 I0–I3 的缺口：HTTP mux 只挂了静态资源，/grpc 前缀从未有 handler，
+// 因此所有前端 RPC 都表现为 "Transport error: Failed to fetch"。
+// 后端能力（I2 证据链、I4 心智地图）因此不可达。本次补齐。
+//
+// 路径剥离是必需的：grpcweb.WrapServer 在根路径上解析
+// "/<service>/<method>"。若把 handler 挂在 "/grpc/" 前缀下而不剥离，
+// Go 的 mux 传入的仍是完整路径，wrapper 会把服务名解析成
+// "grpc/aleth.v1.PrismService" 并返回
+//
+//	grpc-status: 12 (UNIMPLEMENTED) "unknown service grpc/aleth.v1..."
+//
+// 这会把「路径配置错误」伪装成「服务未实现」—— 前端据此误报
+// "PrismService 尚未交付"，而真实原因是路由前缀没剥。
+func newGRPCWebHandler(grpcServer *grpc.Server) http.Handler {
+	wrapped := grpcweb.WrapServer(
+		grpcServer,
+		grpcweb.WithWebsockets(true),
+		grpcweb.WithWebsocketOriginFunc(func(req *http.Request) bool {
+			return loopbackOrigin(req)
+		}),
+		// 跨域：本地工具场景下允许同源 + localhost 开发端口（vite dev 7724）。
+		grpcweb.WithOriginFunc(func(origin string) bool {
+			return isLoopbackOrigin(origin)
+		}),
+	)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wrapped.ServeHTTP(w, stripPrefix(r, grpcWebPathPrefix))
+	})
+}
+
+// stripPrefix 克隆请求并去掉挂载前缀，使 wrapper 看到 "/<service>/<method>"。
+//
+// 用克隆而不是原地改 r.URL.Path：请求对象可能被上游中间件或日志复用，
+// 原地修改会让日志里的路径与实际不符（排查 gRPC-Web 问题时最不需要的
+// 就是日志说谎）。
+func stripPrefix(r *http.Request, prefix string) *http.Request {
+	// 同时接受 "/grpc" 与 "/grpc/" 两种前缀写法。
+	trimmed := r.URL.Path
+	for _, p := range []string{strings.TrimSuffix(prefix, "/"), prefix} {
+		if p != "" && strings.HasPrefix(trimmed, p) {
+			trimmed = strings.TrimPrefix(trimmed, p)
+			break
+		}
+	}
+	if trimmed == "" {
+		trimmed = "/"
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		trimmed = "/" + trimmed
+	}
+	clone := r.Clone(r.Context())
+	clone.URL.Path = trimmed
+	clone.URL.RawPath = ""
+	return clone
+}
+
+// loopbackOrigin 判定请求来源是否为回环/本地开发源。
+func loopbackOrigin(req *http.Request) bool {
+	origin := req.Header.Get("Origin")
+	if origin == "" {
+		// 非浏览器客户端（grpcurl 等）不带 Origin —— 放行。
+		// 它们本来就是本机进程，与 08 §1.1 的信任前提一致。
+		return true
+	}
+	return isLoopbackOrigin(origin)
+}
+
+// isLoopbackOrigin 判定 Origin 是否指向本机。
+//
+// 接受：空串、http(s)://localhost[:port]、http(s)://127.0.0.1[:port]、
+// http(s)://[::1][:port]。其余（含任意外域）一律拒绝。
+func isLoopbackOrigin(origin string) bool {
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+	// 127.0.0.0/8 全段都视为回环。
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
 }
 
 // spaHandler 处理 SPA 路由：未命中静态文件时回落到 index.html。
