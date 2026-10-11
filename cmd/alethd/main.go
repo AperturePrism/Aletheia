@@ -40,6 +40,7 @@ import (
 	"github.com/AperturePrism/aleth/core/ingest/nmap"
 	"github.com/AperturePrism/aleth/core/ingest/nuclei"
 	"github.com/AperturePrism/aleth/core/log"
+	"github.com/AperturePrism/aleth/core/orchestrate"
 	"github.com/AperturePrism/aleth/core/prism"
 	"github.com/AperturePrism/aleth/core/scopekernel"
 	"github.com/spf13/cobra"
@@ -313,6 +314,15 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	registry.Aperture = aperture.NewServer(assembler)
 	logger.Info("aperture (M3) wired",
 		zap.String("default_stop", aperture.ProfileFor(aperture.DefaultStop).Label))
+
+	// I6（04 §4）：M5 编排层 —— 规划与调度。
+	//
+	// 契约硬约束（05 §6.2）：NextReady 不得调用 LLM。本包不引入任何
+	// LLM 客户端，且有静态检查测试锁死这一点（orchestrate_test.go 的
+	// TestNoLLMClientInPackage）—— 它是"设计上不允许"而非"暂时不做"。
+	registry.Orchestrator = orchestrate.NewServer()
+	logger.Info("orchestrator (M5) wired",
+		zap.String("next_ready", "deterministic: topological sort + resource constraints"))
 
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
