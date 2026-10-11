@@ -618,3 +618,43 @@ func (s *Store) StateHash(ctx context.Context, branchID string) (string, error) 
 	defer s.mu.Unlock()
 	return s.branchStateHash(ctx, branch, maxTimeNano)
 }
+
+// ConflictEntityIDs 返回该分支下**存在多源冲突**的实体集合。
+//
+// 判定口径：当前有效版本的 version > 1。
+//
+// 为什么这是正确的冲突判据：M2 的写入语义（ingest.go 的 upsertEntity）
+// 只在两种情况下推进版本号 —— 属性值不同（VALUE_MISMATCH）或实体类型
+// 不同（EXISTENCE_MISMATCH）。属性完全相同的重复观测**不**推进版本。
+// 因此 version > 1 精确等价于"曾被不同来源写入过不同值"。
+//
+// 消费方：M3 光圈控制用它给冲突实体加分（M3 §4.3：冲突是最高价值信号，
+// CONTRADICTS 权重 0.85）。M3 §2.2 N3 明确本模块不自行判定真伪，
+// 只消费这里给出的判定结果。
+func (s *Store) ConflictEntityIDs(ctx context.Context, branchID string) (map[string]bool, error) {
+	if err := ctxErr(ctx); err != nil {
+		return nil, err
+	}
+	branch := normalizeBranch(branchID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT entity_id FROM entity
+		 WHERE branch_id = ? AND valid_to IS NULL AND version > 1`,
+		branch)
+	if err != nil {
+		return nil, fmt.Errorf("prism: conflict lookup: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("prism: scan conflict id: %w", err)
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}

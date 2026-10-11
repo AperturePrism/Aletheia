@@ -29,6 +29,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/AperturePrism/aleth/core/aperture"
 	"github.com/AperturePrism/aleth/core/api/server"
 	"github.com/AperturePrism/aleth/core/checkpoint"
 	"github.com/AperturePrism/aleth/core/config"
@@ -296,6 +297,22 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = graphStore.Close() }()
 	registry.Prism = prism.NewServer(graphStore)
 	logger.Info("prism (mind map) wired", zap.String("map_file", cfg.Storage.MapFile))
+
+	// I5（04 §4）：M3 光圈控制 ★核心创新 —— 记忆在图里，上下文只是焦点的投影。
+	//
+	// 装配失败即拒绝启动：M3 是 L2 唯一的上下文来源（05 §4.1），
+	// 它不可用时上层无法装配任何有依据的上下文，服务不应假装可用。
+	assembler, err := aperture.New(aperture.Options{
+		Graph:     prismGraphAdapter{store: graphStore},
+		Conflicts: prismConflictAdapter{store: graphStore},
+	})
+	if err != nil {
+		logger.Error("cannot assemble aperture controller", zapErr(err))
+		return errRuntime{err: err}
+	}
+	registry.Aperture = aperture.NewServer(assembler)
+	logger.Info("aperture (M3) wired",
+		zap.String("default_stop", aperture.ProfileFor(aperture.DefaultStop).Label))
 
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
