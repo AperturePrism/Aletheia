@@ -39,6 +39,7 @@ import (
 	"github.com/AperturePrism/aleth/core/ingest/nmap"
 	"github.com/AperturePrism/aleth/core/ingest/nuclei"
 	"github.com/AperturePrism/aleth/core/log"
+	"github.com/AperturePrism/aleth/core/prism"
 	"github.com/AperturePrism/aleth/core/scopekernel"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -272,6 +273,21 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	} else {
 		logger.Info("focalplane not configured; LedgerService stays UNIMPLEMENTED (I2)")
 	}
+
+	// I4（04 §4）：M2 心智地图 —— 系统的唯一真源。
+	// 打开失败即拒绝启动（fail-closed）：图不可用的会话无法产出可追溯结论，
+	// 与"证据存不进去的摄入层不能上线"同一判据。
+	graphStore, err := prism.Open(prism.Options{
+		DSN:       cfg.Storage.MapFile,
+		SessionID: sessionIDFor(cfg),
+	})
+	if err != nil {
+		logger.Error("cannot open mind map", zapErr(err))
+		return errRuntime{err: err}
+	}
+	defer func() { _ = graphStore.Close() }()
+	registry.Prism = prism.NewServer(graphStore)
+	logger.Info("prism (mind map) wired", zap.String("map_file", cfg.Storage.MapFile))
 
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(

@@ -149,7 +149,8 @@ type StorageConfig struct {
 	EvidenceDir string `mapstructure:"evidence_dir"`
 	// LedgerFile 证据账本（append-only，05 §5.2）。
 	LedgerFile string `mapstructure:"ledger_file"`
-	// MapFile 心智地图（I4 实现；I0 只占位 schema）。
+	// MapFile 心智地图（M2 单一属性图，SQLite）。I4 起真实使用；
+	// 由 prism.Open 打开，schema 版本不符时拒绝启动（fail-closed）。
 	MapFile string `mapstructure:"map_file"`
 	// AuditLogFile 审计日志（append-only + 哈希链，08 §6.2）。
 	AuditLogFile string `mapstructure:"audit_log_file"`

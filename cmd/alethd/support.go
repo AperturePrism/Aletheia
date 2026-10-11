@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AperturePrism/aleth/core/config"
 	"github.com/AperturePrism/aleth/core/log"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -24,6 +25,18 @@ import (
 )
 
 // ---- 服务注册 ----
+
+// sessionIDFor 派生本进程的会话标识（图分区键，M2 §8）。
+//
+// 为什么需要：M2 的风险缓解之一是"按会话分区"——同一台机器上连续跑多个
+// 会话时，图数据不应互相干扰。I4 的单机形态下每个 daemon 进程即一个会话，
+// 因此用进程启动时刻派生一个稳定 ID。
+//
+// 为什么不用随机数：会话 ID 会写进日志与审计，随机值无法在两次启动间
+// 复现排查线索；用启动时刻既唯一又可从日志时间对回。
+func sessionIDFor(cfg *config.Config) string {
+	return fmt.Sprintf("sess_%s_%d", cfg.Deploy, time.Now().Unix())
+}
 
 // ---- 日志字段辅助 ----
 
