@@ -66,17 +66,17 @@ type Verdict struct {
 
 // Check 对已归一化目标做 scope 裁决（L1/L2 共用比对逻辑；L3 见 CheckResolved）。
 func (k *Kernel) Check(sessionID, target string) Verdict {
-	host, port, err := splitAndNormalize(target)
+	host, path, port, err := splitAndNormalize(target)
 	if err != nil {
 		return k.deny(sessionID, host, "default_deny", fmt.Sprintf("normalization rejected: %v", err))
 	}
-	return k.judge(sessionID, host, port)
+	return k.judge(sessionID, host, path, port)
 }
 
 // CheckResolved 在 DNS 解析**之后**复核（L3）：解析出的每个 IP 都必须在
 // scope 内 —— 任一解析结果越界即整体拒绝（防 rebinding / 通配符 DNS）。
 func (k *Kernel) CheckResolved(ctx context.Context, sessionID, target string) Verdict {
-	host, port, err := splitAndNormalize(target)
+	host, path, port, err := splitAndNormalize(target)
 	if err != nil {
 		return k.deny(sessionID, host, "default_deny", fmt.Sprintf("normalization rejected: %v", err))
 	}
@@ -91,20 +91,20 @@ func (k *Kernel) CheckResolved(ctx context.Context, sessionID, target string) Ve
 			return k.deny(sessionID, host, "dns_unresolvable", fmt.Sprintf("DNS lookup failed: %v", err))
 		}
 		for _, ip := range addrs {
-			if !k.inScope(ip.String(), port) {
+			if !k.inScope(ip.String(), path, port) {
 				return k.deny(sessionID, host, "exclude",
 					fmt.Sprintf("post_dns: resolved address %s outside scope", ip.String()))
 			}
 		}
 	}
-	return k.judge(sessionID, host, port)
+	return k.judge(sessionID, host, path, port)
 }
 
 // judge 执行 08 §3 的匹配语义（exclude 优先 → include → 默认拒绝）+ 限流。
-func (k *Kernel) judge(sessionID, host string, port uint16) Verdict {
+func (k *Kernel) judge(sessionID, host, path string, port uint16) Verdict {
 	// 1. exclude 命中 → 拒绝（永远优先于包含项 —— 安全默认）。
 	for _, r := range k.scope.Exclude {
-		if r.Matches(host, port) {
+		if r.MatchesTarget(host, path, port) {
 			return k.deny(sessionID, host, "exclude",
 				fmt.Sprintf("target matches exclude rule %q", r.Value))
 		}
@@ -112,7 +112,7 @@ func (k *Kernel) judge(sessionID, host string, port uint16) Verdict {
 	// 2. include 命中 → 允许（进入限流）。
 	included := false
 	for _, r := range k.scope.Include {
-		if r.Matches(host, port) {
+		if r.MatchesTarget(host, path, port) {
 			included = true
 			break
 		}
@@ -166,55 +166,67 @@ func (k *Kernel) deny(sessionID, host, failedBy, reason string) Verdict {
 }
 
 // inScope 仅做 include/exclude 比对（L3 内部用；已排除限流语义）。
-func (k *Kernel) inScope(host string, port uint16) bool {
+func (k *Kernel) inScope(host, path string, port uint16) bool {
 	for _, r := range k.scope.Exclude {
-		if r.Matches(host, port) {
+		if r.MatchesTarget(host, path, port) {
 			return false
 		}
 	}
 	for _, r := range k.scope.Include {
-		if r.Matches(host, port) {
+		if r.MatchesTarget(host, path, port) {
 			return true
 		}
 	}
 	return false // 默认拒绝
 }
 
-// splitAndNormalize 把原始目标拆为 (host, port) 并归一化。
+// splitAndNormalize 把原始目标拆为 (host, path, port) 并归一化。
 // 无端口时 port=0（表示"不限端口"，由 host 规则的 Ports 语义裁决）。
 // 拆分先于归一化 —— `:` 不在裸 host 的合法字符集内。
-func splitAndNormalize(target string) (string, uint16, error) {
-	var hostPart, portPart string
+//
+// path 只在目标含 URL/路径时非空（url_prefix 规则的匹配输入）；
+// 纯 host/IP 目标返回 ""。返回值恒以 "/" 开头或为空。
+func splitAndNormalize(target string) (string, string, uint16, error) {
+	var hostPart, portPart, pathPart string
 	if strings.Contains(target, "://") {
 		u, err := url.Parse(target)
 		if err != nil {
-			return "", 0, fmt.Errorf("unparsable URL: %w", err)
+			return "", "", 0, fmt.Errorf("unparsable URL: %w", err)
 		}
 		hostPart, portPart = u.Hostname(), u.Port()
-	} else if i := strings.LastIndex(target, ":"); i >= 0 && !strings.Contains(target[i+1:], "]") {
-		// IPv6 字面量（含多个冒号）不走此分支：无 :// 且不以 [:: 开头的
-		// 情况下，最后一段冒号后是数字才视为端口。
-		if isAll(target[i+1:], '0', '9') {
-			hostPart, portPart = target[:i], target[i+1:]
+		pathPart = u.EscapedPath()
+	} else {
+		// 裸 host 可能带路径："api.example.com/v2"。
+		// 路径与端口不可能同时出现于裸形态（端口在 host 段），故先切路径。
+		if i := strings.IndexByte(target, '/'); i >= 0 {
+			pathPart = target[i:]
+			target = target[:i]
+		}
+		if i := strings.LastIndex(target, ":"); i >= 0 && !strings.Contains(target[i+1:], "]") {
+			// IPv6 字面量（含多个冒号）不走此分支：无 :// 且不以 [:: 开头的
+			// 情况下，最后一段冒号后是数字才视为端口。
+			if isAll(target[i+1:], '0', '9') {
+				hostPart, portPart = target[:i], target[i+1:]
+			} else {
+				hostPart = target
+			}
 		} else {
 			hostPart = target
 		}
-	} else {
-		hostPart = target
 	}
 	host, err := NormalizeTarget(hostPart)
 	if err != nil {
-		return "", 0, err
+		return "", "", 0, err
 	}
 	var port uint16
 	if portPart != "" {
 		n, err := strconv.ParseUint(portPart, 10, 16)
 		if err != nil {
-			return "", 0, fmt.Errorf("bad port %q", portPart)
+			return "", "", 0, fmt.Errorf("bad port %q", portPart)
 		}
 		port = uint16(n)
 	}
-	return host, port, nil
+	return host, cleanPathPrefix(pathPart), port, nil
 }
 
 func isIPLiteral(host string) bool {

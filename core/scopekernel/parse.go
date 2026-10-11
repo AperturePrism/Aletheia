@@ -92,11 +92,11 @@ func buildRule(r scopeRuleYAML) (TargetRule, error) {
 		}
 		return rule, nil
 	case strings.TrimSpace(r.URLPrefix) != "":
-		host, err := NormalizeTarget(r.URLPrefix)
+		rule, err := NewURLPrefixRule(r.URLPrefix)
 		if err != nil {
 			return TargetRule{}, fmt.Errorf("url_prefix %q: %w", r.URLPrefix, err)
 		}
-		return TargetRule{Kind: "url_prefix", Value: r.URLPrefix, Host: host}, nil
+		return rule, nil
 	default:
 		return TargetRule{}, fmt.Errorf("rule must have one of cidr/host/url_prefix")
 	}

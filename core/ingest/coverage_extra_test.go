@@ -3,9 +3,11 @@ package ingest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -140,6 +142,112 @@ func TestRawStoreIdempotent(t *testing.T) {
 	back, err := os.ReadFile(u1)
 	if err != nil || string(back) != string(content) {
 		t.Fatalf("blob roundtrip: %v", err)
+	}
+}
+
+func TestRawStoreConcurrentIdenticalPuts(t *testing.T) {
+	// 回归（缺陷：并发写入同一内容必然失败）：
+	// 旧实现用 `哈希 + ".tmp"` 作临时名 —— 并发写同一内容时多个 goroutine
+	// 争抢同一临时文件，Windows 报 "being used by another process"，
+	// POSIX 可能互相截断。实测 200 并发失败 90 次。
+	// 该失败发生在 Sandbox 执行**之后**，表现为"工具跑完了但证据丢了"。
+	dir := t.TempDir()
+	store, err := NewRawStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("identical content written concurrently")
+
+	const n = 64
+	var wg sync.WaitGroup
+	type result struct {
+		hash, uri string
+		err       error
+	}
+	out := make(chan result, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h, u, err := store.Put(content)
+			out <- result{h, u, err}
+		}()
+	}
+	wg.Wait()
+	close(out)
+
+	var wantHash, wantURI string
+	seen := 0
+	for r := range out {
+		if r.err != nil {
+			t.Fatalf("concurrent Put #%d failed: %v", seen, r.err)
+		}
+		if seen == 0 {
+			wantHash, wantURI = r.hash, r.uri
+		} else if r.hash != wantHash || r.uri != wantURI {
+			t.Fatalf("concurrent Put diverged: %s/%s vs %s/%s", r.hash, r.uri, wantHash, wantURI)
+		}
+		seen++
+	}
+	if seen != n {
+		t.Fatalf("collected %d results, want %d", seen, n)
+	}
+
+	// 内容寻址：n 次并发写入只应产生**一个** blob。
+	var blobs []string
+	subs, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range subs {
+		if !s.IsDir() {
+			continue
+		}
+		entries, err := os.ReadDir(filepath.Join(dir, s.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			blobs = append(blobs, filepath.Join(dir, s.Name(), e.Name()))
+		}
+	}
+	if len(blobs) != 1 {
+		t.Fatalf("content-addressed store has %d blobs, want 1: %v", len(blobs), blobs)
+	}
+	// 不残留临时文件。
+	if strings.HasSuffix(blobs[0], ".tmp") {
+		t.Fatalf("blob path is a leftover temp file: %s", blobs[0])
+	}
+	back, err := os.ReadFile(blobs[0])
+	if err != nil || string(back) != string(content) {
+		t.Fatalf("blob content corrupted: %v", err)
+	}
+}
+
+func TestRawStoreConcurrentDistinctPuts(t *testing.T) {
+	// 不同内容并发：全部成功且各自落盘（互不干扰）。
+	dir := t.TempDir()
+	store, err := NewRawStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 32
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, _, err := store.Put([]byte(fmt.Sprintf("distinct-content-%d", i)))
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent distinct Put failed: %v", err)
+		}
 	}
 }
 

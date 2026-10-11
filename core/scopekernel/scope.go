@@ -30,6 +30,15 @@ type TargetRule struct {
 	CIDR  netip.Prefix
 	Host  string   // 归一化后的小写域名/IP
 	Ports []uint16 // host 规则的可选端口限定
+
+	// PathPrefix 仅 url_prefix 规则使用：归一化后的路径前缀（始终以 "/" 开头）。
+	//
+	// 为什么必须单独存：08 §3 的 url_prefix 语义是「URL 前缀」
+	// （例 `https://api.example.com/v2/` 只授权该主机下的 /v2/ 子树）。
+	// 若只保留 host，规则会静默退化为「整站主机匹配」—— 授权范围被放大，
+	// 且 include 侧会连带放行根路径与 /admin 等未授权路径。这是授权绕过
+	// （07 §T5.5 / M6 §3.3），故 path 必须参与匹配。
+	PathPrefix string
 }
 
 // Scope 是从 roe.yaml 解析出的授权范围。
@@ -199,6 +208,10 @@ func parseUint64(s string) (uint64, bool) {
 }
 
 // Matches 判定已归一化的目标是否命中本规则。
+//
+// 注意 url_prefix 的 host 比较**不使用裸 strings.HasPrefix**：
+// 那会让规则 `api.example.com` 命中 `api.example.com.evil.com`
+// （攻击者注册的相似域名）与 `api.example.comX`。必须按域标签边界比较。
 func (r TargetRule) Matches(host string, port uint16) bool {
 	switch r.Kind {
 	case "cidr":
@@ -221,10 +234,76 @@ func (r TargetRule) Matches(host string, port uint16) bool {
 		}
 		return false
 	case "url_prefix":
-		return strings.HasPrefix(host, r.Host)
+		// host 必须精确相等（归一化后两侧都是小写规范形式）。
+		// 不做后缀/子串匹配 —— 相似域名与后缀混淆由精确相等天然排除。
+		//
+		// 无 path 上下文时（Matches 的旧签名）保守处理：仅当规则本身
+		// 不含路径约束（PathPrefix 为空或 "/"）才在 host 相等时命中。
+		// 含路径约束的规则必须走 MatchesTarget 传入 path ——
+		// 这里返回 false 是 fail-closed，避免"忘了传 path 就整站放行"。
+		return r.Host == host && r.pathUnconstrained()
 	default:
 		return false
 	}
+}
+
+// MatchesTarget 是带路径上下文的完整匹配入口（url_prefix 的正确语义）。
+//
+// targetPath 是请求路径（如 "/v2/users"）；不适用时传 ""。
+// 语义（08 §3）：
+//   - cidr / host 规则忽略 path；
+//   - url_prefix 规则要求 host 精确相等 **且** 路径落在 PathPrefix 子树内。
+//
+// 路径边界必须按 **路径段** 比较，不能用裸 HasPrefix：
+// `/v2/` 不应命中 `/v2evil`，`/admin` 不应命中 `/administrator`。
+func (r TargetRule) MatchesTarget(host, targetPath string, port uint16) bool {
+	if r.Kind != "url_prefix" {
+		return r.Matches(host, port)
+	}
+	if r.Host != host {
+		return false
+	}
+	if r.pathUnconstrained() {
+		return true
+	}
+	return pathHasPrefix(targetPath, r.PathPrefix)
+}
+
+// pathUnconstrained 报告该 url_prefix 规则是否不含路径约束。
+func (r TargetRule) pathUnconstrained() bool {
+	return r.PathPrefix == "" || r.PathPrefix == "/"
+}
+
+// pathHasPrefix 按路径段边界判定 prefix。
+//
+// 规则（等价于 HTTP 路由的子树匹配语义）：
+//
+//	prefix "/v2/" → 命中 "/v2/", "/v2/users"；不命中 "/v2", "/v2evil"
+//	prefix "/v2"  → 命中 "/v2", "/v2/users"；不命中 "/v2evil"
+//
+// 空 targetPath 视为 "/"（根路径）。
+func pathHasPrefix(targetPath, prefix string) bool {
+	if targetPath == "" {
+		targetPath = "/"
+	}
+	// 尾斜杠语义："/v2/" 应命中 "/v2" 本身（根）与 "/v2/..." 全部子树。
+	if strings.HasSuffix(prefix, "/") {
+		if targetPath == strings.TrimSuffix(prefix, "/") {
+			return true
+		}
+	}
+	if !strings.HasPrefix(targetPath, prefix) {
+		return false
+	}
+	// 前缀已到目标串末尾 → 命中。
+	if len(targetPath) == len(prefix) {
+		return true
+	}
+	// 否则要求边界字符是 '/'（段边界）或 prefix 自身以 '/' 结尾。
+	if strings.HasSuffix(prefix, "/") {
+		return true
+	}
+	return targetPath[len(prefix)] == '/'
 }
 
 // NewCIDRRule 构造 CIDR 规则（scope 解析时校验前缀合法性）。
@@ -234,4 +313,89 @@ func NewCIDRRule(value string) (TargetRule, error) {
 		return TargetRule{}, fmt.Errorf("invalid cidr %q: %w", value, err)
 	}
 	return TargetRule{Kind: "cidr", Value: value, CIDR: prefix.Masked()}, nil
+}
+
+// NewURLPrefixRule 构造 url_prefix 规则（08 §3）。
+//
+// 必须**同时**保留 host 与 path —— 只留 host 会让规则静默退化为整站匹配，
+// 使 `https://api.example.com/v2/` 连带授权 `/`、`/admin` 等未授权路径
+// （授权绕过）。path 归一化为始终以 "/" 开头的形式。
+func NewURLPrefixRule(value string) (TargetRule, error) {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return TargetRule{}, fmt.Errorf("url_prefix is empty")
+	}
+	host, path, err := SplitURLHostPath(raw)
+	if err != nil {
+		return TargetRule{}, err
+	}
+	return TargetRule{
+		Kind:       "url_prefix",
+		Value:      value,
+		Host:       host,
+		PathPrefix: path,
+	}, nil
+}
+
+// SplitURLHostPath 把 URL 或裸 host(+path) 拆为归一化 host 与路径前缀。
+//
+// 接受的形态（08 §3 的 url_prefix 用例含完整 URL）：
+//
+//	"https://api.example.com/v2/"   → ("api.example.com", "/v2/")
+//	"http://allowed@evil.com/x"     → ("evil.com", "/x")   userinfo 不参与匹配
+//	"api.example.com/v2"            → ("api.example.com", "/v2")
+//	"api.example.com"               → ("api.example.com", "")
+//
+// 无路径时返回 ""（表示该规则不约束路径）。
+func SplitURLHostPath(raw string) (host, path string, err error) {
+	if strings.Contains(raw, "://") {
+		u, uerr := url.Parse(raw)
+		if uerr != nil {
+			return "", "", fmt.Errorf("unparsable URL: %w", uerr)
+		}
+		h := u.Hostname()
+		if h == "" {
+			return "", "", fmt.Errorf("URL %q has no host", raw)
+		}
+		norm, nerr := NormalizeTarget(h)
+		if nerr != nil {
+			return "", "", nerr
+		}
+		// EscapedPath 保留原始转义，避免 %2F 被还原成 "/" 改变段边界。
+		p := u.EscapedPath()
+		if p == "" {
+			p = ""
+		}
+		return norm, cleanPathPrefix(p), nil
+	}
+	// 裸 host 可能带路径："api.example.com/v2"
+	if i := strings.IndexByte(raw, '/'); i >= 0 {
+		hostPart, pathPart := raw[:i], raw[i:]
+		norm, nerr := NormalizeTarget(hostPart)
+		if nerr != nil {
+			return "", "", nerr
+		}
+		return norm, cleanPathPrefix(pathPart), nil
+	}
+	norm, nerr := NormalizeTarget(raw)
+	if nerr != nil {
+		return "", "", nerr
+	}
+	return norm, "", nil
+}
+
+// cleanPathPrefix 归一化路径前缀：确保以 "/" 开头、折叠重复斜杠。
+// 不做 URL 解码（解码会让 %2F 变成段分隔符，改变边界语义）。
+func cleanPathPrefix(p string) string {
+	if p == "" {
+		return ""
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	// 折叠重复斜杠（"//v2" → "/v2"），保留尾斜杠语义。
+	for strings.Contains(p, "//") {
+		p = strings.ReplaceAll(p, "//", "/")
+	}
+	return p
 }
