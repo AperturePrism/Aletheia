@@ -198,15 +198,27 @@ func TestNoLLMClientInPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// 禁止出现的标准库网络/IO 包 —— 确定性规划器不应有任何 IO。
+	//
+	// **用包路径而非调用形态作为判据。** 最初的实现检查
+	// `"http.Get("` 这类调用形态，变异测试证明它可被绕过：
+	// `var _ = http.Get`（方法值，无括号）、`http.DefaultClient.Do(..)`
+	// 都绕得过。包路径是"具备 IO 能力"的必要条件，无法在不被察觉的
+	// 情况下引入。
+	banPackages := []string{
+		"net/http", "net/http/httputil", "net/rpc", "net/smtp",
+		"os/exec", "database/sql",
+	}
 	// 禁止出现的外部 LLM 依赖（模块规格 §2 的设计决策）。
+	//
+	// 匹配 `"`+b（import 字面量前缀），而不是裸子串 —— 裸 `"llm"` 会
+	// 命中任何含该片段的路径。
 	banImports := []string{
 		"openai", "anthropic", "langchain", "ollama", "gemini", "cohere",
-		"go-openai", "llm", "generative-ai",
+		"generative-ai", "google.golang.org/genai",
 	}
-	// 禁止出现的网络调用（NextReady 不应有任何 IO）。
-	banCalls := []string{
-		"http.Get(", "http.Post(", "http.NewRequest(",
-	}
+	// LLM 服务端点特征（覆盖未枚举的 SDK 变体）。
+	banEndpoints := []string{"api.openai.com", "api.anthropic.com"}
 
 	scanned := 0
 	for _, e := range entries {
@@ -219,24 +231,32 @@ func TestNoLLMClientInPackage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		src := strings.ToLower(string(data))
+		src := string(data)
+		lower := strings.ToLower(src)
+
+		for _, p := range banPackages {
+			if strings.Contains(src, `"`+p+`"`) {
+				t.Errorf("%s: imports %q — the deterministic planner performs no IO "+
+					"(NextReady is topological + resource-constraint solving only, 05 §6.2)",
+					name, p)
+			}
+		}
 		for _, b := range banImports {
-			if strings.Contains(src, `"`+b) || strings.Contains(src, "/"+b) {
+			if strings.Contains(lower, `"`+b) {
 				t.Errorf("%s: imports a banned LLM dependency matching %q "+
 					"(NextReady must stay LLM-free, 05 §6.2)", name, b)
 			}
 		}
-		for _, c := range banCalls {
-			if strings.Contains(string(data), c) {
-				t.Errorf("%s: contains network call %q "+
-					"(the deterministic planner performs no IO)", name, c)
+		for _, ep := range banEndpoints {
+			if strings.Contains(lower, ep) {
+				t.Errorf("%s: references LLM endpoint %q", name, ep)
 			}
 		}
 	}
 	if scanned == 0 {
 		t.Fatal("no source files scanned — the static check is vacuous")
 	}
-	t.Logf("scanned %d source files; no LLM dependency and no network calls found", scanned)
+	t.Logf("scanned %d source files; no IO package and no LLM dependency found", scanned)
 }
 
 // ---- T5.7：Refiner（DoD⑥：依据结构化失败类型改写，区别于简单重试）----

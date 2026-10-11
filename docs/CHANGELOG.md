@@ -9,6 +9,99 @@
 
 ## [Unreleased]
 
+### I6 · M5 编排层（确定性骨架）（2026-10-11）
+
+> 定位：`04` §I6。本轮交付**确定性部分**，LLM 接线（Agent 池 /
+> Planner prompt / 模型分级路由）有意分离为下一步 —— 详见
+> `docs/iterations/I6-交接.md` §6「为什么分离」。
+
+**Added**
+- **`core/orchestrate/`** —— M5 编排层：
+  - 任务图构造与校验（`NewGraph`）：拒绝空/重复 `task_id`、悬空依赖、
+    **有环图**（有环图无法求解，必须在进入调度前拒绝 —— 否则表现为
+    "任务永远不 ready"，伪装成"暂时没有可做的任务"）；
+  - **确定性规划器**：Kahn 拓扑排序 + 声明序 tie-break、资源约束裁剪、
+    关键路径（`NextReady` / `CriticalPath`）；
+  - 状态流转（`ApplyResult`）：FAILED **必须**带 `FailureRecord`
+    （Refiner 的输入契约）、DONE 为终态不可静默重入；
+  - **Refiner**：六类结构化失败类型各有**不同**的定向动作
+    （`CONTEXT_MISSING` → 提高光圈档位；`WRONG_HYPOTHESIS` → 回滚分支
+    重规划；`HALLUCINATION` → 停 agent 重新取证 等），未知类型**拒绝
+    而非猜**；
+  - **熔断器**：6 类动作，评估顺序从严到宽，**范围越界最高优先级**
+    （fail-closed 终止整场会话）；
+  - 检查点 / rewind / fork：账本**不回滚**（记水位而非副本）、
+    RUNNING 任务恢复为 READY、里程碑检查点不被淘汰。
+- **前端 gRPC-Web 桥接**（`cmd/alethd/support.go`）：HTTP 端口挂载
+  `grpcweb.WrapServer`，含**挂载前缀剥离**。
+- **`ConflictEntityIDs`**（`core/prism`）：M3 消费的冲突判据
+  （当前有效版本 `version > 1`）。
+
+**Fixed**
+- **前端 RPC 全断**（I0 起存在，直至本次暴露）：HTTP mux 只挂了静态资源，
+  `/grpc` 前缀从无 handler，因此**所有**前端 RPC 表现为
+  `Transport error: Failed to fetch` —— I2 证据链视图与 I4 心智地图在
+  浏览器里都不可达。三处独立修复缺一不可（详见 `I4-交接.md` §1）。
+- **`url_prefix` 授权绕过**（`core/scopekernel`）：解析时只保留 host、丢弃
+  path，且用裸 `strings.HasPrefix` 比较 —— `https://api.example.com/v2/`
+  连带授权 `/`、`/admin`，且命中 `api.example.com.evil.com`。改为
+  保留 `PathPrefix` + host 精确相等 + **按路径段边界**比较。
+- **`Governor` 预扣被拒即永久熔断**（`core/governor`）：预扣失败是**瞬时
+  并发争用**（零消耗），旧实现直接置 `circuitOpen` 且无解除路径，把剩余
+  预算永久锁死。改为熔断只由「已消耗 ≥ 总额」触发；`Consume` 改为幂等；
+  新增 `Release` 归还预扣。
+- **`RawStore.Put` 并发写入竞态**（`core/ingest`）：临时名是确定性的
+  `哈希 + ".tmp"`，并发写同一内容时争抢同一文件（实测 200 并发失败 90 次）。
+  改用 `os.CreateTemp` 唯一名 + `fsync` + rename 冲突收敛。
+
+**Security**
+- `url_prefix` 绕过修复属**授权范围放大**（`07` §T5.5 级别）。
+  该规则此前**全仓库零测试覆盖**，是它未被发现的原因；本轮补齐
+  8 个用例，并做**变异验证**（回退旧逻辑 → 新套件报出 8 处
+  `AUTHORIZATION BYPASS` 并 FAIL）。
+
+### I5 · M3 光圈控制 ★核心创新（2026-10-11）
+
+> 定位：`04` §I5。详见 `docs/iterations/I5-交接.md`。
+
+**Added**
+- **`core/aperture/`** —— M3 光圈控制：
+  - 三档光圈模型（f/1.4 / f/4 / f/16，数值逐项取自 `M3` §4.1）；
+  - Autofocus：实体引用抽取（URL/CIDR/IP/域名，**刻意保守不误抽**）+
+    关系权重表（§4.3）+ 六维相关度打分（§4.2 步骤 3）；
+  - Context Assembly：**不允许截断**（§2.2 N4），超预算返回
+    `APERTURE_OVER_BUDGET` 并自动降档重试；
+  - 保守 Token 估算器（§4.5 系数）+ 省略维度**显式**声明（§4.4）；
+  - **召回率测试套件**：100 组跨任务依赖链（任务 B 的 hint **只含
+    自己知道的主机名**，不传实体 ID）。
+- **前端光圈上下文视图**（`06` 页面 5 ★核心视图）：档位阶梯、摘要、
+  **省略声明与入选清单同等显眼**（诊断价值所在）、选取依据审计。
+
+**Changed**
+- `M3` §4.2 步骤 5 标题写"按预算**截断**"，与 §2.2 N4「不允许截断」
+  矛盾 —— 按 N4 实现（贪心装入 + 显式省略），测试注释记录该判断。
+
+### I4 · M2 棱镜分解与心智地图（2026-10-11）
+
+> 定位：`04` §I4。详见 `docs/iterations/I4-交接.md`。
+
+**Added**
+- **`core/prism/`** —— M2 心智地图（系统的唯一真源）：
+  - 单一属性图（SQLite，纯 Go 驱动**无 cgo**）+ 七类实体 schema；
+  - **确定性实体身份**：`entity_id = 类型前缀 + sha256(kind‖规范业务键)`，
+    使同一主机被 nmap 与 httpx 分别发现时落到**同一个** ID；
+  - **多源写入不覆盖不合并**（§4.3，对 D12 级联失败的回应）：值冲突
+    生成新版本 + `Conflict{VALUE_MISMATCH}`；值相同只追加 provenance；
+  - **时间版本与回放**（§4.4）：严格区间查询，回放保真；
+  - **假设分支**（§4.5）：创建/回滚/合并，合并闸门拒绝未验证假设；
+  - 子图投影（§4.2）+ 幂等写入 + 分支并发上限。
+- **前端心智地图浏览器**（`06` 页面 3）：表视图 / 关系视图 / 时间回放。
+
+**Security**
+- `RawStore.Put` 加入 `fsync`：证据必须在返回 URI 前真正落盘，
+  否则崩溃会留下"有引用无内容"。
+- M2 `graph_meta.schema_version` 版本不符拒绝打开（fail-closed）。
+
 ### Q8 · 长时稳定性 harness 补齐（2026-09-27）
 
 > 定位：`04` §2 P0 门禁第 1 条（24h 无崩溃 / 无内存泄漏）的执行入口。
