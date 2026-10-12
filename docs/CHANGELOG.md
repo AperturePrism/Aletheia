@@ -9,6 +9,47 @@
 
 ## [Unreleased]
 
+### CI 供应链加固（`07` §T6 的两条未落实缓解）（2026-10-12）
+
+> 继续"逐条核对威胁模型缓解措施"的方法。本轮核对 T6 的四个变体，
+> 发现「CI 供应链」这一条的两项缓解措施**只写在文档里**。
+
+**Security**
+- **`ci.yml` 没有 `permissions` 块**：每个 job 拿到的是仓库默认权限
+  （历史上是 read-write，可推提交、可改 Release）。
+  **为什么不是形式主义**：CI 会执行 PR 里的代码，而 PR 可能来自 fork。
+  权限过大时，一个被投毒 PR 的构建脚本就能用 `GITHUB_TOKEN` 推提交或
+  篡改 Release —— 那正是该变体要防的事。修为显式 `contents: read`。
+- **构建产物未签名**：此前只有 `checksums.txt`。
+  **为什么 checksums 不等于签名**：checksums 只能防传输篡改 ——
+  攻击者若能改产物，也能改校验和。provenance 把产物绑定到
+  「本仓库 + 本 workflow + 本 commit」。
+  已用 `actions/attest-build-provenance@v1`（SLSA provenance）补齐，
+  并用 OIDC 换 Sigstore 短期证书（**无需长期密钥**，因此不存在
+  "私钥泄漏使所有历史产物失效"的风险）。
+  - 诚实边界写进了 workflow 注释：attestation 只覆盖**构建来源**，
+    不覆盖"代码本身没有后门"—— 后者是代码审阅的职责。
+
+**Tests**
+- **`tests/test_ci_workflows.py`** 新增 3 个用例：
+  - `test_workflow_declares_minimal_permissions`（参数化）——
+    **未声明即失败**（而非"声明了才检查"），因为"忘了声明"与
+    "故意放宽"后果相同。且要求**逐项**声明：`read-all` 也被拒。
+  - `test_release_needs_write_and_ci_does_not` —— ★ 对照断言：
+    两者权限必须**不同**。若相同，说明至少有一处与职责不符。
+  - `test_no_workflow_grants_write_all` —— 单独一条，让失败信息
+    直接点出这个具体的高危写法。
+- 新增 `ALLOWED_WORKFLOW_PERMISSIONS` 白名单：新增 workflow 时必须
+  **登记它需要的权限并说明理由**。本轮加 `id-token: write`（SLSA 需要）
+  时立刻被这条拦下并要求登记 —— 守护生效的实证。
+- **变异验证（3 种破坏全部被抓）**：
+
+| 变异 | 结果 |
+|---|---|
+| 移除 `ci.yml` 的 permissions 块（还原原缺陷） | ✅ 2 用例失败 |
+| 放宽到 `write-all` | ✅ 3 用例失败 |
+| `read` 改成 `write`（权限与职责不符） | ✅ 2 用例失败 |
+
 ### T1 提示词注入检测层（`07` 标为"★最高风险"却从未实现）（2026-10-12）
 
 > 延续上一轮的审计方法：把威胁模型的"验证方法"列逐条对照代码。
