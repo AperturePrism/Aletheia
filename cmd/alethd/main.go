@@ -246,6 +246,20 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	// Sandbox 依赖仍缺位（I3 清单未含容器编排）—— Execute 在该场景显式
 	// UPSTREAM_UNAVAILABLE（I1 语义），不存在绕过校验的执行路径。
 	if cfg.Authorization.RoePath != "" {
+		// ★ 完整凭证校验（08 §1.3）：targets 段 + authorization 段时间窗。
+		//
+		// 此前只调 ParseScopeFile，而它**看不到 authorization 段** ——
+		// 于是 roe.schema.json 里明确指派给 Scope Kernel 的三条约束
+		// （valid_until > valid_from / 跨度 ≤ 90 天 / 当前在窗口内）
+		// **一条都没被强制**。后果：一份**已过期**的授权凭证会被接受。
+		//
+		// 授权有效期是"本次交战被允许的时间窗"，接受过期凭证等于让
+		// 授权无限续期 —— 直接违背 08 §1.1 的"无凭证不启动"。
+		if err := scopekernel.ValidateROEFile(
+			cfg.Authorization.RoePath, time.Now().UTC()); err != nil {
+			logger.Error("authorization credential rejected", zapErr(err))
+			return errAuth{err: err}
+		}
 		scope, err := scopekernel.ParseScopeFile(cfg.Authorization.RoePath)
 		if err != nil {
 			logger.Error("cannot parse roe scope", zapErr(err))

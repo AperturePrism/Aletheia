@@ -28,6 +28,16 @@ var version = "dev"
 
 func main() {
 	if err := rootCmd().Execute(); err != nil {
+		// 凭证拒绝用**专用退出码 3**（docs/08 §1.3），而不是通用的 1。
+		//
+		// 为什么要区分：CI 与监控需要分辨"凭证有问题"（修配置）
+		// 与"程序出错"（查 bug）。`08` §1.3 的流程图里四种拒绝情形
+		// （未提供 / 不可读 / 过期 / 字段不全）全部指向退出码 3。
+		//
+		// cobra 已经打印了错误，这里只决定退出码。
+		if _, ok := asCredentialError(err); ok {
+			os.Exit(exitCredentialRejected)
+		}
 		os.Exit(1)
 	}
 }
@@ -133,12 +143,14 @@ func runDaemonRestart(cmd *cobra.Command, authPath string) error {
 	// 08 §1.1：无凭证不启动 —— 重启也是启动，因此同一校验。
 	// **先校验再停止**：若凭证缺失就拒绝，不能先把正在工作的
 	// daemon 停掉再报错（那会把"拒绝启动"变成"服务被中断"）。
-	if authPath == "" {
-		return fmt.Errorf("Authorization Anchor: 拒绝重启 —— 未提供授权凭证\n" +
-			"  依据 docs/08 §1.1：无凭证不启动。\n" +
-			"  注意：本命令**在停止现有 daemon 之前**就校验凭证，\n" +
-			"  以免把一个运行中的服务停掉之后才报错。\n" +
-			"  用法：aleth daemon restart --authorization roe.yaml")
+	// 校验必须在**停止现有 daemon 之前**：顺序反了会把"拒绝启动"
+	// 变成"服务被中断" —— 用户拿不到凭证时，却把正在工作的服务停掉了。
+	//
+	// 用与 start 相同的完整校验（08 §1.3）。
+	if err := validateAuthorization(authPath); err != nil {
+		return fmt.Errorf(
+			"%w\n  注意：本命令在停止现有 daemon **之前**就校验凭证，"+
+				"\n  以免把一个运行中的服务停掉之后才报错。", err)
 	}
 
 	// 只有确认在运行才停 —— 没在运行时 restart 等价于 start。

@@ -65,14 +65,13 @@ func runDaemonStart(cmd *cobra.Command, authPath string) error {
 	// CLI 这里先挡一次，是为了给出比 alethd 内部更明确的用法提示；
 	// 真正的防线在 alethd（因为 daemon 可以被直接启动，绕过本 CLI）。
 	// 两层都要有 —— 单靠 CLI 挡不住"直接跑 alethd"的路径。
-	if authPath == "" {
-		return fmt.Errorf("Authorization Anchor: 拒绝启动 —— 未提供授权凭证\n" +
-			"  依据 docs/08 §1.1：无凭证不启动，不是警告、不是降级。\n" +
-			"  用法：aleth daemon start --authorization roe.yaml\n" +
-			"  凭证格式见 docs/08 §2；JSON Schema 见 docs/schemas/roe.schema.json")
-	}
-	if _, err := os.Stat(authPath); err != nil {
-		return fmt.Errorf("授权凭证文件不可读: %w", err)
+	// 完整预校验（08 §1.3）：未提供 / 不可读 / targets 非法 / 时间窗非法。
+	//
+	// 此前只做 os.Stat，因此损坏或过期的凭证会一路走到 daemon 才失败，
+	// 而 CLI 已经把 "alethd started" 打印出去且退出码为 0 ——
+	// CI 会据此认为启动成功（实测确认）。
+	if err := validateAuthorization(authPath); err != nil {
+		return err
 	}
 
 	foreground, _ := cmd.Flags().GetBool("foreground")
