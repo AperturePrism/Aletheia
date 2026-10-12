@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	alethv1 "github.com/AperturePrism/aleth/core/api/aleth/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -377,8 +378,19 @@ func TestCircuitCoversAllConditions(t *testing.T) {
 		}
 		covered[got] = true
 	}
-	// 六类动作全部被覆盖（DoD④：8 类熔断条件全覆盖 —— 其中硬熔断/
-	// 终止/停 agent/收窄/回退 五类动作用例齐备）。
+	// 六类动作全部被覆盖（DoD④：**8 类熔断条件**全覆盖）。
+	//
+	// 8 类条件 → 动作的映射：
+	//   范围越界 / 会话幻觉占比     → ActionTerminateSession
+	//   预算耗尽 / 会话时长超限     → ActionHardStop
+	//   单 agent 幻觉              → ActionStopAgent
+	//   单任务 token 超限 / 预算 80% → ActionNarrowAperture
+	//   无进展步数                 → ActionRewind
+	//
+	// 本用例覆盖 5 类动作；「会话时长」与「单任务 token」两类条件由
+	// TestCircuitSessionDurationLimit 与 TestCircuitPerTaskTokenLimit
+	// 单独覆盖（它们需要 time.Duration / uint64 的输入，不适合放进
+	// 这张表）。
 	for _, need := range []CircuitAction{
 		ActionTerminateSession, ActionHardStop, ActionStopAgent,
 		ActionNarrowAperture, ActionRewind,
@@ -403,6 +415,113 @@ func TestCircuitAgentScanIsDeterministic(t *testing.T) {
 	}
 	if !strings.Contains(r1, "alpha") {
 		t.Fatalf("should report the lexicographically first offending agent: %q", r1)
+	}
+}
+
+// ---- 补齐的两类熔断条件（M5 §4.4 的 8 类之一二）----
+
+func TestAllCircuitConditionsHaveDefaults(t *testing.T) {
+	// M5 §4.4 的 8 类熔断条件在本实现的阈值结构里必须**全部有默认值**。
+	//
+	// 这条守护的是"8 类全覆盖"（04 §I6 DoD④）—— 若有人新增了
+	// CircuitState 字段却忘了在 DefaultThresholds 里给默认值，
+	// 那个条件会因零值而永不触发（`if th.X > 0` 恒假），
+	// 表现为"熔断器少了一类"而无人察觉。
+	th := DefaultThresholds()
+	if th.MaxAgentHallucinations == 0 {
+		t.Error("MaxAgentHallucinations must have a non-zero default")
+	}
+	if th.MaxSessionHallucinationRatio == 0 {
+		t.Error("MaxSessionHallucinationRatio must have a non-zero default")
+	}
+	if th.BudgetNarrowRatio == 0 {
+		t.Error("BudgetNarrowRatio must have a non-zero default")
+	}
+	if th.MaxNoProgressSteps == 0 {
+		t.Error("MaxNoProgressSteps must have a non-zero default")
+	}
+	if th.MaxSessionDuration == 0 {
+		t.Error("MaxSessionDuration must have a non-zero default " +
+			"(otherwise the duration circuit never fires)")
+	}
+	if th.MaxTaskTokens == 0 {
+		t.Error("MaxTaskTokens must have a non-zero default " +
+			"(otherwise the per-task token circuit never fires)")
+	}
+}
+
+func TestCircuitSessionDurationLimit(t *testing.T) {
+	// M5 §4.4 表格"总运行时长可配置上限 → 硬熔断"。
+	th := DefaultThresholds()
+	st := CircuitState{SessionElapsed: th.MaxSessionDuration + time.Minute}
+	act, reason := EvaluateCircuit(st, th)
+	if act != ActionHardStop {
+		t.Fatalf("session over the duration limit must hard-stop, got %s", act)
+	}
+	if !strings.Contains(reason, "duration") {
+		t.Fatalf("reason should mention duration: %q", reason)
+	}
+	// 未超限时不触发。
+	under := CircuitState{SessionElapsed: th.MaxSessionDuration - time.Minute}
+	if a, _ := EvaluateCircuit(under, th); a != ActionNone {
+		t.Fatalf("under the limit must not trigger, got %s", a)
+	}
+}
+
+func TestCircuitSessionDurationPrecedesHallucinationRatio(t *testing.T) {
+	// 时长检查刻意排在幻觉占比之前：时长是**确定性**的客观边界，
+	// 而幻觉占比依赖计数质量。一个已超时数倍的会话应先停。
+	th := DefaultThresholds()
+	st := CircuitState{
+		SessionElapsed:        th.MaxSessionDuration + time.Hour,
+		SessionTotalSteps:     100,
+		SessionHallucinations: 90, // 幻觉占比也超限
+	}
+	act, reason := EvaluateCircuit(st, th)
+	if act != ActionHardStop {
+		t.Fatalf("duration should win over hallucination ratio, got %s", act)
+	}
+	if !strings.Contains(reason, "duration") {
+		t.Fatalf("reason should be the duration one: %q", reason)
+	}
+}
+
+func TestCircuitPerTaskTokenLimit(t *testing.T) {
+	// M5 §4.4 表格"单任务 token 超任务预算 → **强制收窄光圈重试 1 次**，
+	// 失败则 SKIPPED"。
+	//
+	// 动作是 ActionNarrowAperture（收窄重试），**不是** ActionStopAgent ——
+	// 规格明确要求先重试一次。
+	th := DefaultThresholds()
+	st := CircuitState{CurrentTaskTokens: th.MaxTaskTokens + 1}
+	act, reason := EvaluateCircuit(st, th)
+	if act != ActionNarrowAperture {
+		t.Fatalf("per-task overrun must narrow and retry (not stop), got %s", act)
+	}
+	if !strings.Contains(reason, "retry once") {
+		t.Fatalf("reason should state the retry-once semantics: %q", reason)
+	}
+	// 未超限时不触发。
+	under := CircuitState{CurrentTaskTokens: th.MaxTaskTokens - 1}
+	if a, _ := EvaluateCircuit(under, th); a != ActionNone {
+		t.Fatalf("under the per-task limit must not trigger, got %s", a)
+	}
+}
+
+func TestZeroThresholdDisablesThatCondition(t *testing.T) {
+	// 阈值为 0 = 该条件**显式禁用**（不是"用零值比较"）。
+	for _, tc := range []struct {
+		name string
+		th   CircuitThresholds
+		st   CircuitState
+	}{
+		{"duration disabled", CircuitThresholds{}, CircuitState{SessionElapsed: 1000 * time.Hour}},
+		{"task limit disabled", CircuitThresholds{}, CircuitState{CurrentTaskTokens: 1 << 40}},
+		{"no-progress disabled", CircuitThresholds{}, CircuitState{NoProgressSteps: 1 << 20}},
+	} {
+		if act, _ := EvaluateCircuit(tc.st, tc.th); act != ActionNone {
+			t.Errorf("%s: zero threshold must not fire, got %s", tc.name, act)
+		}
 	}
 }
 

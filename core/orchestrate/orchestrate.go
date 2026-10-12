@@ -30,6 +30,9 @@
 package orchestrate
 
 import (
+	"fmt"
+	"time"
+
 	alethv1 "github.com/AperturePrism/aleth/core/api/aleth/v1"
 )
 
@@ -93,15 +96,39 @@ type CircuitThresholds struct {
 	BudgetNarrowRatio float64
 	// MaxNoProgressSteps 无进展步数上限（> 15 → rewind）。
 	MaxNoProgressSteps uint32
+	// MaxSessionDuration 会话总运行时长上限（M5 §4.4 表格"总运行时长上限"）。
+	//
+	// 0 表示不限制 —— 但这应是**显式**选择：一个没有时长上限的自主渗透
+	// 会话会在失控时一直跑下去。规格把它列为熔断条件之一，因此默认值
+	// 非零（见 DefaultThresholds）。
+	MaxSessionDuration time.Duration
+	// MaxTaskTokens 单任务 token 上限（M5 §4.4 表格"单任务 token 超任务预算"）。
+	//
+	// 超限的动作不是"停止任务"，而是规格原文的
+	// "**强制收窄光圈重试 1 次，失败则 SKIPPED**" ——
+	// 因此对应 ActionNarrowAperture（重试后仍超限由调用方转 SKIPPED）。
+	//
+	// 0 表示不限制。
+	MaxTaskTokens uint64
 }
 
 // DefaultThresholds 返回 M5 §4.4 的默认阈值。
+//
+// 八类熔断条件在本函数里全部有默认值 —— 有测试断言这一点
+// （`TestAllCircuitConditionsHaveDefaults`）。
 func DefaultThresholds() CircuitThresholds {
 	return CircuitThresholds{
 		MaxAgentHallucinations:       3,
 		MaxSessionHallucinationRatio: 0.10,
 		BudgetNarrowRatio:            0.80,
 		MaxNoProgressSteps:           15,
+		// 24h 是 P0 门禁的稳定性测试时长（04 §6 Q8），
+		// 作为会话时长上限的默认值与之对齐：超过该长度的单会话
+		// 已超出项目的验证范围，应硬熔断而非继续。
+		MaxSessionDuration: 24 * time.Hour,
+		// 单任务上限取默认会话预算的 1/10 —— 一个任务吃掉超过十分之一
+		// 的会话预算，通常说明它的范围过大（应拆小），而非"任务重要"。
+		MaxTaskTokens: 50_000,
 	}
 }
 
@@ -162,18 +189,29 @@ type CircuitState struct {
 
 	// NoProgressSteps 连续无进展步数。
 	NoProgressSteps uint32
+
+	// SessionElapsed 会话已运行时长（M5 §4.4"总运行时长上限"的输入）。
+	//
+	// 由调用方从会话开始时刻计算并传入 —— 本包不做时钟读取
+	// （保持 EvaluateCircuit 是纯函数，可确定性测试）。
+	SessionElapsed time.Duration
+	// CurrentTaskTokens 当前任务的累计 token 消耗
+	// （M5 §4.4"单任务 token 超任务预算"的输入）。
+	CurrentTaskTokens uint64
 }
 
 // EvaluateCircuit 按 M5 §4.4 评估熔断条件，返回应执行的动作。
 //
-// 评估顺序即优先级（从严到宽）：
+// 评估顺序即优先级（从严到宽，共 **8 类**）：
 //
 //  1. 范围越界 → 终止整场会话（fail-closed，无例外）
 //  2. 预算耗尽 → 硬熔断
-//  3. 会话幻觉占比超限 → 终止会话
-//  4. 单 agent 幻觉超限 → 停止该 agent
-//  5. 预算消耗达 80% → 收窄光圈
-//  6. 无进展步数超限 → rewind
+//  3. 会话总运行时长超限 → 硬熔断
+//  4. 会话幻觉占比超限 → 终止会话
+//  5. 单 agent 幻觉超限 → 停止该 agent
+//  6. 单任务 token 超限 → 收窄光圈重试（规格原文的"强制收窄重试 1 次"）
+//  7. 预算消耗达 80% → 收窄光圈
+//  8. 无进展步数超限 → rewind
 //
 // 返回的第二个值是触发原因（写入审计，供 07 §8 的事件响应流程使用）。
 // 多个条件同时满足时只返回最高优先级的动作 —— 熔断一旦触发即终止评估，
@@ -189,7 +227,17 @@ func EvaluateCircuit(s CircuitState, th CircuitThresholds) (CircuitAction, strin
 		return ActionHardStop, "budget exhausted: producing interim report"
 	}
 
-	// 3. 会话幻觉占比超限 → 终止会话。
+	// 3. 会话总运行时长超限 → 硬熔断（M5 §4.4 表格"总运行时长可配置上限"）。
+	//
+	// 排在幻觉占比之前：时长是**确定性**的客观边界，而幻觉占比依赖
+	// 计数质量。一个已经超时数倍的会话应当先停，而不是继续做统计判断。
+	if th.MaxSessionDuration > 0 && s.SessionElapsed >= th.MaxSessionDuration {
+		return ActionHardStop, fmt.Sprintf(
+			"session duration %s reached the configured limit %s; hard stop",
+			s.SessionElapsed, th.MaxSessionDuration)
+	}
+
+	// 4. 会话幻觉占比超限 → 终止会话。
 	// 分母为零时不算占比（没有步骤就没有"占比"这一概念）。
 	if s.SessionTotalSteps > 0 && th.MaxSessionHallucinationRatio > 0 {
 		ratio := float64(s.SessionHallucinations) / float64(s.SessionTotalSteps)
@@ -199,7 +247,7 @@ func EvaluateCircuit(s CircuitState, th CircuitThresholds) (CircuitAction, strin
 		}
 	}
 
-	// 4. 单 agent 幻觉超限 → 停止该 agent。
+	// 5. 单 agent 幻觉超限 → 停止该 agent。
 	// 按 agent_id 排序遍历，保证多个 agent 同时超限时的结果确定（P-5）。
 	for _, id := range sortedKeys(s.AgentHallucinations) {
 		if s.AgentHallucinations[id] > th.MaxAgentHallucinations {
@@ -207,7 +255,19 @@ func EvaluateCircuit(s CircuitState, th CircuitThresholds) (CircuitAction, strin
 		}
 	}
 
-	// 5. 预算消耗达阈值 → 收窄光圈（M3 §4.1 的"恒定曝光"联动）。
+	// 6. 单任务 token 超限 → 收窄光圈重试（M5 §4.4 表格原文：
+	//    "强制收窄光圈重试 1 次，失败则 SKIPPED"）。
+	//
+	// 这里只返回"收窄重试"这一动作；"重试后仍超限 → SKIPPED" 的
+	// 判定由调用方依据任务的 attempt 计数完成 —— 编排层知道重试了几次，
+	// 本纯函数不知道。
+	if th.MaxTaskTokens > 0 && s.CurrentTaskTokens > th.MaxTaskTokens {
+		return ActionNarrowAperture, fmt.Sprintf(
+			"task consumed %d tokens, over the per-task limit %d; narrow the aperture and retry once",
+			s.CurrentTaskTokens, th.MaxTaskTokens)
+	}
+
+	// 7. 预算消耗达阈值 → 收窄光圈（M3 §4.1 的"恒定曝光"联动）。
 	if s.BudgetTotal > 0 && th.BudgetNarrowRatio > 0 {
 		ratio := float64(s.BudgetConsumed) / float64(s.BudgetTotal)
 		if ratio >= th.BudgetNarrowRatio {
@@ -215,8 +275,16 @@ func EvaluateCircuit(s CircuitState, th CircuitThresholds) (CircuitAction, strin
 		}
 	}
 
-	// 6. 无进展步数超限 → rewind 到最近检查点。
-	if s.NoProgressSteps > th.MaxNoProgressSteps {
+	// 8. 无进展步数超限 → rewind 到最近检查点。
+	//
+	// `th.MaxNoProgressSteps > 0` 的守卫是**必需的**：没有它，
+	// `MaxNoProgressSteps == 0` 会让"任何一步"都触发 rewind
+	// （因为 `s.NoProgressSteps > 0`），而零值在本结构里统一表示
+	// "该条件显式禁用"（见 TestZeroThresholdDisablesThatCondition）。
+	//
+	// 此前本条件缺这个守卫，是六类里唯一不一致的一处 ——
+	// 由新增的零阈值测试抓到。
+	if th.MaxNoProgressSteps > 0 && s.NoProgressSteps > th.MaxNoProgressSteps {
 		return ActionRewind, "no-progress window exceeded: rewinding to the latest checkpoint"
 	}
 
