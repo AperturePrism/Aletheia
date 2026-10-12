@@ -14,6 +14,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,27 +167,44 @@ type StatusOutput struct {
 	CircuitOpen    bool    `json:"budget_circuit_open,omitempty"`
 }
 
-func runStatus(format string) error {
+func runStatus(cmd *cobra.Command, format string) error {
 	out := StatusOutput{
 		DaemonRunning: false,
 		ListenAddr:    fmt.Sprintf("%s:%d", defaultListenAddr, defaultListenPort),
 		Version:       version,
 	}
 
-	// I0 不实现"查询运行中的 daemon"——那需要 daemon 侧 gRPC 客户端，
-	// 而服务端能力尚在建设中。这里只报告 CLI 侧可确定的事实。
-	//
 	// 如实报告 daemon 未连接，而不是假装查到了空状态：
 	// 假成功会让 05 §0 C2「失败必须显式」失效。
+	//
+	// 待办：接 gRPC 客户端后改为真实探测（当前只报 CLI 侧可确定的事实）。
 	out.DaemonRunning = false
 
+	// ★ 写 cobra 的 writer（`cmd.OutOrStdout()`）而不是 `os.Stdout`。
+	//
+	// 此前硬编码 os.Stdout，带来两个后果：
+	//   1. **命令不可测** —— 测试无法捕获输出（本文件的测试因此才发现这点）；
+	//   2. **无法被调用方重定向** —— 用 `SetOut` 的程序化调用拿到空输出。
+	//
+	// 这是 cobra 命令的标准约定：输出一律走 cmd 的 writer。
+	// 修它不是"为了让测试过"，而是让命令真正可组合（06 §3.2 的
+	// 设计取向："面向脚本可组合"）。
+	return writeStatus(cmd.OutOrStdout(), format, out)
+}
+
+// writeStatus 渲染状态输出（抽出来是为了可独立测试两种格式）。
+func writeStatus(w io.Writer, format string, out StatusOutput) error {
 	if format == "json" {
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(out)
 	}
-	fmt.Printf("aleth %s\n", version)
-	fmt.Printf("daemon: not connected (I0: 客户端尚未接线)\n")
-	fmt.Printf("expected endpoint: %s\n", out.ListenAddr)
-	return nil
+	if _, err := fmt.Fprintf(w, "aleth %s\n", version); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "daemon: not connected (CLI gRPC client not wired yet)\n"); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(w, "expected endpoint: %s\n", out.ListenAddr)
+	return err
 }

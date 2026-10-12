@@ -59,6 +59,9 @@ func rootCmd() *cobra.Command {
 		versionCmd(),
 		// I11（04 §4 前端交付物）：MCP 接口（06 §3.4）。
 		mcpCmd(),
+		// 06 §3.2 职责⑤：报告导出。此前**该子命令不存在** ——
+		// 而"导出证据供外部审计"正是本项目第一原则对外的接口。
+		exportCmd(),
 	)
 	return cmd
 }
@@ -104,7 +107,7 @@ alethd 承载全部业务逻辑；本命令只负责它的生命周期。
 }
 
 func statusCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "查询 daemon 与会话状态（脚本可解析）",
 		Long: `查询 daemon 与会话状态。
@@ -114,9 +117,18 @@ func statusCmd() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			format, _ := cmd.Flags().GetString("format")
-			return runStatus(format)
+			return runStatus(cmd, format)
 		},
 	}
+	// ★ 这个 flag 曾经**只被读取、从未被注册** ——
+	// `aleth status --format json` 报 "unknown flag"，而帮助文本却在宣传它。
+	//
+	// 后果不只是"少个选项"：`06 §3.2` 要求 CLI 承担
+	// 「CI 集成（无界面模式）」，而机器可读输出正是那条路径的全部 ——
+	// 它一直是断的，且因为没人跑过而无人发现。
+	cmd.Flags().String("format", "",
+		"输出格式：json（机器可读）或留空（人类可读）")
+	return cmd
 }
 
 func versionCmd() *cobra.Command {
