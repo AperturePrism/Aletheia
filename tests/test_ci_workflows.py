@@ -64,6 +64,119 @@ def _load(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+# ---------------------------------------------------------------------------
+# ★ 最小权限（docs/07 §T6「CI 供应链 → CI 凭据最小权限」）
+# ---------------------------------------------------------------------------
+
+#: 每个 workflow 允许的**最大**权限。
+#:
+#: 为什么需要这张表而不是"一律 contents: read"：
+#: `release.yml` 创建 Release 与上传资产，**确实需要** `contents: write`。
+#: 无差别要求 read 会逼着人加例外注释，而例外注释不会被检查 ——
+#: 于是约束退化成"写上就好"。显式列白名单让"某个文件需要什么权限"
+#: 成为一处可审阅的事实。
+#:
+#: 值为 `None` 表示"该文件不得声明 permissions"（暂无此类文件）。
+ALLOWED_WORKFLOW_PERMISSIONS: dict[str, dict[str, str]] = {
+    "ci.yml": {"contents": "read"},
+    # release.yml 需要两项，各有明确理由：
+    #   · contents: write —— 创建 Release 与上传资产
+    #   · id-token: write —— SLSA provenance 用 OIDC 向 Sigstore 换短期证书
+    #     （docs/07 §T6「构建产物签名」）。它**不**授予仓库写权限，
+    #     但可换取云凭据，因此仍需登记与审阅。
+    "release.yml": {"contents": "write", "id-token": "write"},
+}
+
+#: 绝不接受的权限（无论哪个 workflow）。
+#:
+#: `write-all` 与未声明的默认权限是同一类问题：给了远超需要的范围。
+#: `id-token: write` 单独列出是因为它可换取云凭据 —— 本项目不需要。
+FORBIDDEN_PERMISSION_VALUES = {"write-all"}
+
+
+@pytest.mark.parametrize("workflow", sorted(WORKFLOW_DIR.glob("*.yml")))
+def test_workflow_declares_minimal_permissions(workflow: Path) -> None:
+    """★ 每个 workflow 必须**显式**声明 permissions，且不超出白名单。
+
+    背景（`docs/07` §T6「CI 供应链」的缓解措施：
+    "CI 凭据最小权限"）：`ci.yml` 此前**没有 permissions 块** ——
+    那时每个 job 拿到的是仓库默认权限（历史上是 read-write）。
+
+    为什么这不是形式主义：CI 会执行 PR 里的代码，而 PR 可能来自 fork。
+    权限过大时，一个被投毒 PR 的构建脚本就能用 `GITHUB_TOKEN`
+    推提交或篡改 Release。最小权限把这条路径的收益降到接近零。
+
+    断言方式：**未声明即失败**（而不是"声明了才检查"）——
+    因为"忘了声明"与"故意放宽"的后果相同，都应红灯。
+    """
+    doc = _load(workflow)
+    perms = doc.get("permissions")
+
+    assert perms is not None, (
+        f"{workflow.name} 未声明 permissions —— 会拿到仓库默认权限。\n"
+        "docs/07 §T6 要求「CI 凭据最小权限」；请显式写 `permissions: contents: read`"
+    )
+
+    # `permissions: read-all` / `write-all` 的标量写法。
+    if isinstance(perms, str):
+        assert perms not in FORBIDDEN_PERMISSION_VALUES, (
+            f"{workflow.name} 声明了 `permissions: {perms}` —— 范围远超需要"
+        )
+        # read-all 也不算最小权限：它给出所有 scope 的读权限，
+        # 而 CI 只需要读代码。
+        assert perms != "read-all", (
+            f"{workflow.name} 用了 `read-all`，应逐项声明（如 contents: read）"
+        )
+        return
+
+    allowed = ALLOWED_WORKFLOW_PERMISSIONS.get(workflow.name)
+    assert allowed is not None, (
+        f"{workflow.name} 不在 ALLOWED_WORKFLOW_PERMISSIONS 白名单里。\n"
+        "新增 workflow 时请一并登记它**需要**的权限，并说明理由 —— "
+        "未经审阅的权限声明容易过宽。"
+    )
+
+    for scope, level in perms.items():
+        assert scope in allowed, (
+            f"{workflow.name} 声明了未登记的权限 `{scope}: {level}`。\n"
+            f"已登记：{allowed}。若确实需要，请更新白名单并说明理由。"
+        )
+        assert level == allowed[scope], (
+            f"{workflow.name} 的 `{scope}` 权限是 {level}，"
+            f"但登记的（也是最小需要的）是 {allowed[scope]}"
+        )
+
+
+def test_release_needs_write_and_ci_does_not() -> None:
+    """★ 对照断言：两个 workflow 的权限必须**不同**。
+
+    若两者相同，说明至少有一处过宽或过窄：
+    · CI 要到 write → 过宽（它只读代码）
+    · Release 只到 read → 过窄（它创建 Release 与上传资产）
+
+    这条断言的价值是把"权限与职责匹配"变成可检查的事实，
+    而不是靠"大概写对了"。
+    """
+    ci = _load(WORKFLOW_DIR / "ci.yml").get("permissions", {})
+    rel = _load(WORKFLOW_DIR / "release.yml").get("permissions", {})
+    assert ci != rel, "ci.yml 与 release.yml 的权限完全相同 —— 至少一处与职责不符"
+    assert ci.get("contents") == "read", f"ci.yml 应只需读：{ci}"
+    assert rel.get("contents") == "write", f"release.yml 需要写：{rel}"
+
+
+def test_no_workflow_grants_write_all() -> None:
+    """任何 workflow 都不得声明 `write-all`。
+
+    单独一条（而非并入上面的参数化用例）是为了让失败信息直接点出
+    这个具体的高危写法 —— 它是供应链攻击里收益最大的一类配置。
+    """
+    for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
+        text = workflow.read_text(encoding="utf-8")
+        assert "write-all" not in text, (
+            f"{workflow.name} 出现 `write-all` —— docs/07 §T6 明确要求最小权限"
+        )
+
+
 def test_setup_action_exists() -> None:
     """统一 setup 的 composite action 必须存在。"""
     assert SETUP_ACTION.exists(), f"composite action 缺失：{SETUP_ACTION}"
