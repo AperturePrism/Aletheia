@@ -57,8 +57,38 @@ fi
 # ---- 工具链 ----
 # 复用 scripts/py.sh 的解释器解析（含 Windows/Linux 布局与自动建 venv），
 # 避免本脚本重复维护候选列表（I0 环境坑 #5/#7 的教训：解析逻辑只写一处）。
-PY=$(bash scripts/py.sh -c "import sys; print(sys.executable)")
+#
+# ★ 必须带 `PYTHONIOENCODING=utf-8`（本 harness 实测踩到的坑）：
+#
+# 路径含非 ASCII 字符时（如 `.../AperturePrism-AI渗透/...`），
+# Windows 上 Python 的 stdout 默认按**控制台代码页**（本机是 GBK）编码，
+# 于是 `渗透` 输出为字节 `311 370 315 270`（GBK），
+# 而 Git Bash 的文件系统层按 **UTF-8** 解释 —— 它把同一串字节读成乱码，
+# 于是 `$PY` 指向一个不存在的路径，脚本在第一处调用即崩。
+#
+# 实测证据（od -c 输出）：
+#   不带该变量 → `A I 311 370 315 270` → ls: No such file or directory
+#   带该变量   → `A I 346 270 227 351 200 217` → ls: 正常找到
+#
+# 注意：**不能**改用 `command -v python` 绕过 —— 那会解析到系统 Python
+# （无本项目 venv 依赖），实测其 grpcio 是 1.82.1 而生成代码要求 >=1.84.0，
+# focalplane 启动即崩。即"用错解释器"比"路径乱码"更隐蔽。
+PY=$(PYTHONIOENCODING=utf-8 bash scripts/py.sh -c "import sys; print(sys.executable)")
 if [ -z "$PY" ]; then echo "python not found; run make env"; exit 2; fi
+# 路径分隔符统一为 POSIX 形式（Git Bash 两种都认，但统一后错误信息更清晰）。
+case "$PY" in
+    [A-Za-z]:\\*) PY=$(printf '%s' "$PY" | sed 's|\\|/|g') ;;
+esac
+if ! "$PY" -c "import sys" >/dev/null 2>&1; then
+    echo "错误：解析到的 Python 解释器不可用：$PY" >&2
+    echo "      若项目路径含非 ASCII 字符，请确认本脚本的 PYTHONIOENCODING=utf-8。" >&2
+    exit 2
+fi
+if ! "$PY" -c "import sys" >/dev/null 2>&1; then
+    echo "错误：解析到的 Python 解释器不可用（$PY）。" >&2
+    echo "      若路径含非 ASCII 字符，请确认 Git Bash 的 PATH 含 venv 的 Scripts 目录。"
+    exit 2
+fi
 ALETHD="bin/alethd"
 if [ ! -x "$ALETHD" ] && [ -f "$ALETHD.exe" ]; then ALETHD="$ALETHD.exe"; fi
 if [ ! -x "$ALETHD" ]; then echo "bin/alethd not found; run make build"; exit 2; fi
