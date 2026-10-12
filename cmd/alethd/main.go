@@ -316,14 +316,30 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	logger.Info("aperture (M3) wired",
 		zap.String("default_stop", aperture.ProfileFor(aperture.DefaultStop).Label))
 
+	// 会话级预算总额（config 的 budget.session_tokens）。
+	//
+	// 在 Orchestrator 与 Governor 装配**之前**声明：两者共用同一个值 ——
+	// 检查点记录的预算状态必须与服务端认可的预算同源，
+	// 否则"检查点说还剩一半、Governor 说已熔断"这类矛盾无法排查。
+	sessionBudget := cfg.Budget.SessionTokens
+
 	// I6（04 §4）：M5 编排层 —— 规划与调度。
 	//
 	// 契约硬约束（05 §6.2）：NextReady 不得调用 LLM。本包不引入任何
 	// LLM 客户端，且有静态检查测试锁死这一点（orchestrate_test.go 的
 	// TestNoLLMClientInPackage）—— 它是"设计上不允许"而非"暂时不做"。
-	registry.Orchestrator = orchestrate.NewServer()
+	//
+	// 检查点需要 M2 的图版本与 M6 的预算快照（05 §6.2 的
+	// CheckpointInfo.graph_version / budget_snapshot_hash）。
+	// I6 交付时这两个字段是空的；本次接上适配器。
+	registry.Orchestrator = orchestrate.NewServerWithSnapshots(
+		newCheckpointSnapshotAdapter(graphStore,
+			func(sessionID string) (uint64, uint64, bool, bool) {
+				return budgetStateFromGovernor(sessionID, sessionBudget, 0, false)
+			}))
 	logger.Info("orchestrator (M5) wired",
-		zap.String("next_ready", "deterministic: topological sort + resource constraints"))
+		zap.String("next_ready", "deterministic: topological sort + resource constraints"),
+		zap.Bool("checkpoint_snapshots_wired", graphStore != nil))
 
 	// I6（04 §4）：CostGovernor 的 gRPC 接线（补齐 I3 遗留）。
 	//
@@ -331,10 +347,9 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	// gRPC —— registry.Governor 一直是 unimplementedGovernor。04 §I6 的
 	// 「成本与预算面板」（06 页面 10）需要它才能显示实时消耗。
 	//
-	// 预算来源：config 的 budget.session_tokens。未配置时（0）
+	// 预算来源即上面声明的 sessionBudget。未配置时（0）
 	// GovernorService 的 Reserve 会 fail-closed 拒绝执行 —— 与
 	// 「无预算的会话是一个永不熔断的熔断器」同一判据（M6 §6）。
-	sessionBudget := cfg.Budget.SessionTokens
 	registry.Governor = governor.NewServer(func(string) uint64 { return sessionBudget })
 	if sessionBudget == 0 {
 		logger.Warn("no session token budget configured (budget.session_tokens=0); " +

@@ -1,6 +1,8 @@
 package orchestrate
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -727,4 +729,131 @@ func TestCheckpointTimestampField(t *testing.T) {
 	// Checkpoint 的 CreatedAt 契约字段存在（proto 有该字段）——
 	// 这里只确认 protobuf 时间戳可用于检查点元数据。
 	_ = timestamppb.Now()
+}
+
+// ---- 检查点的跨模块状态快照（05 §6.2 的 graph_version / budget_snapshot_hash）----
+
+var errFakeSource = errors.New("fake snapshot source unavailable")
+
+// fakeSnapshots 是可编程的跨模块状态来源（M2/M6 的替身）。
+type fakeSnapshots struct {
+	graphVersion string
+	budgetHash   string
+	graphErr     error
+	budgetErr    error
+}
+
+func (f fakeSnapshots) GraphVersion(context.Context, string) (string, error) {
+	return f.graphVersion, f.graphErr
+}
+
+func (f fakeSnapshots) BudgetSnapshotHash(context.Context, string) (string, error) {
+	return f.budgetHash, f.budgetErr
+}
+
+func planGraph(t *testing.T, s *Server) {
+	t.Helper()
+	_, err := s.Plan(context.Background(), &alethv1.PlanRequest{
+		SessionId: "s1",
+		ProposedGraph: &alethv1.TaskGraph{
+			GraphId: "g1", SessionId: "s1", PlanRevision: "1",
+			Tasks: []*alethv1.Task{{TaskId: "a", Status: alethv1.TaskStatus_PENDING}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckpointRecordsCrossModuleSnapshots(t *testing.T) {
+	// 检查点必须记录 M2 的图版本与 M6 的预算快照哈希 ——
+	// 否则 rewind 无法与其他模块的状态对齐（05 §6.2 的字段语义）。
+	s := NewServerWithSnapshots(fakeSnapshots{
+		graphVersion: "snap_abc123",
+		budgetHash:   "bh_deadbeef",
+	})
+	planGraph(t, s)
+
+	info, err := s.Checkpoint(context.Background(),
+		&alethv1.CheckpointRequest{SessionId: "s1", Label: "cp1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.GetGraphVersion() != "snap_abc123" {
+		t.Fatalf("graph_version = %q, want snap_abc123", info.GetGraphVersion())
+	}
+	if info.GetBudgetSnapshotHash() != "bh_deadbeef" {
+		t.Fatalf("budget_snapshot_hash = %q, want bh_deadbeef", info.GetBudgetSnapshotHash())
+	}
+}
+
+func TestCheckpointWithoutSnapshotSourceLeavesFieldsEmpty(t *testing.T) {
+	// 未注入来源时**留空**，不编造值。
+	//
+	// 一个伪造的版本号会让「rewind 后证据一致」看起来有据可依，而实际没有 ——
+	// 那比缺失更糟（docs/10 §0：不能让「没查」伪装成「没问题」）。
+	s := NewServer()
+	planGraph(t, s)
+	info, err := s.Checkpoint(context.Background(),
+		&alethv1.CheckpointRequest{SessionId: "s1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.GetGraphVersion() != "" {
+		t.Fatalf("graph_version must be empty (not fabricated), got %q", info.GetGraphVersion())
+	}
+	if info.GetBudgetSnapshotHash() != "" {
+		t.Fatalf("budget hash must be empty (not fabricated), got %q",
+			info.GetBudgetSnapshotHash())
+	}
+}
+
+func TestCheckpointPartialSnapshotFailureIsIsolated(t *testing.T) {
+	// 两个来源各自独立：一个失败不影响另一个。
+	s := NewServerWithSnapshots(fakeSnapshots{
+		graphVersion: "snap_ok",
+		budgetErr:    errFakeSource,
+	})
+	planGraph(t, s)
+	info, err := s.Checkpoint(context.Background(),
+		&alethv1.CheckpointRequest{SessionId: "s1"})
+	if err != nil {
+		t.Fatalf("a partial snapshot failure must not fail the whole checkpoint: %v", err)
+	}
+	if info.GetGraphVersion() != "snap_ok" {
+		t.Fatalf("graph version should survive the budget failure, got %q", info.GetGraphVersion())
+	}
+	if info.GetBudgetSnapshotHash() != "" {
+		t.Fatalf("budget hash should be empty on failure, got %q", info.GetBudgetSnapshotHash())
+	}
+}
+
+func TestCheckpointWarningsExplainEmptySnapshots(t *testing.T) {
+	// 空字段必须带**原因** ——「来源没版本概念」与「根本没接线」
+	// 处置完全不同，不能只留空。
+	s := NewServer()
+	planGraph(t, s)
+	cp, err := s.snapshotCheckpoint(context.Background(), "s1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cp.Warnings) == 0 {
+		t.Fatal("missing snapshot source must produce an explanatory warning")
+	}
+	if !strings.Contains(cp.Warnings[0], "no SnapshotSource") {
+		t.Fatalf("warning should name the cause: %q", cp.Warnings[0])
+	}
+}
+
+func TestCheckpointStoresFullGraphForRewind(t *testing.T) {
+	// 检查点必须存**完整图快照**（rewind 恢复的依据），而不只是版本号。
+	s := NewServer()
+	planGraph(t, s)
+	cp, err := s.snapshotCheckpoint(context.Background(), "s1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp.Graph == nil || len(cp.Graph.GetTasks()) == 0 {
+		t.Fatal("checkpoint must carry the full task graph for rewind")
+	}
 }

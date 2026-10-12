@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	alethv1 "github.com/AperturePrism/aleth/core/api/aleth/v1"
 )
@@ -146,6 +147,15 @@ type Checkpoint struct {
 	LedgerWatermark string
 	// Graph 是 TaskGraph 在该检查点的完整快照（用于 rewind 恢复）。
 	Graph *alethv1.TaskGraph
+	// Warnings 记录快照不完整的原因（如未注入跨模块状态来源）。
+	//
+	// 存在的理由：`GraphVersion` / `BudgetHash` 为空有两种可能 ——
+	// "来源确实没有版本概念"与"根本没接线"。两者的处置完全不同，
+	// 因此不能只留空字段，必须带上原因（docs/10 §0）。
+	Warnings []string
+	// createdAt 是创建时刻（内部字段 —— proto 的 CreatedAt 由 server 层
+	// 在返回 CheckpointInfo 时填充，本结构不依赖 proto 类型）。
+	createdAt time.Time
 }
 
 // CheckpointStore 保存检查点（M5 §8：仅保留最近 N 个 + 每个里程碑一个）。

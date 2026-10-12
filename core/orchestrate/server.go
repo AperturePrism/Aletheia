@@ -17,6 +17,30 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// SnapshotSource 提供检查点所需的**跨模块状态快照**（05 §6.2 的
+// `CheckpointInfo.graph_version` 与 `budget_snapshot_hash`）。
+//
+// # 为什么用接口注入而不是直接依赖 M2/M6
+//
+// M5 §3.2 N1/N2 明确编排层**不做**图装配（M3）与预算记账（M6）——
+// 它只消费它们的结论。检查点需要把这两个结论**定格**下来，
+// 因此这里声明"我需要什么"，由装配方（cmd/alethd）把真实实现接上。
+//
+// 这与 core/ingest 的 `Deps` 是同一做法：接口由消费者定义，
+// 因此测试可以精确注入固定值，验证检查点确实记录了快照。
+type SnapshotSource interface {
+	// GraphVersion 返回心智地图当前的版本标识（M2 的 `SnapshotAt` 时刻）。
+	//
+	// 空串表示"该来源未提供"—— 此时 `CheckpointInfo.graph_version`
+	// 如实为空，**不编造**一个版本号（伪造的可复现性比缺失更糟）。
+	GraphVersion(ctx context.Context, sessionID string) (string, error)
+	// BudgetSnapshotHash 返回预算状态的哈希（M6 Governor 的状态摘要）。
+	//
+	// 用哈希而非完整状态：检查点需要的是"能判定两次快照是否相同"，
+	// 而不是可回滚的预算副本（预算不回滚 —— 与账本同源的设计）。
+	BudgetSnapshotHash(ctx context.Context, sessionID string) (string, error)
+}
+
 // Server 实现 alethv1.OrchestratorServiceServer。
 //
 // 会话状态：I6 的单机形态下每进程承载一个会话（与 M2 的按会话分区同源），
@@ -29,6 +53,8 @@ type Server struct {
 	ckpts  map[string]*CheckpointStore // session_id → 检查点
 	now    func() time.Time
 	seq    uint64
+	// snapshots 提供检查点所需的跨模块状态（可为 nil —— 见 Checkpoint）。
+	snapshots SnapshotSource
 }
 
 // NewServer 装配 OrchestratorService。
@@ -38,6 +64,15 @@ func NewServer() *Server {
 		ckpts:  map[string]*CheckpointStore{},
 		now:    time.Now,
 	}
+}
+
+// NewServerWithSnapshots 装配带跨模块状态来源的 OrchestratorService。
+//
+// `src` 为 nil 时等价于 `NewServer()`（检查点里的版本字段留空并带告警）。
+func NewServerWithSnapshots(src SnapshotSource) *Server {
+	s := NewServer()
+	s.snapshots = src
+	return s
 }
 
 // Plan 登记 LLM 生成的图草稿（OrchestratorService.Plan）。
@@ -155,14 +190,38 @@ func (s *Server) Refine(ctx context.Context, req *alethv1.RefineRequest) (*aleth
 
 // Checkpoint 创建检查点。
 func (s *Server) Checkpoint(ctx context.Context, req *alethv1.CheckpointRequest) (*alethv1.CheckpointInfo, error) {
-	if err := ctxErr(ctx); err != nil {
-		return nil, err
-	}
-	g, err := s.graphFor(req.GetSessionId())
+	cp, err := s.snapshotCheckpoint(ctx, req.GetSessionId(), req.GetLabel())
 	if err != nil {
 		return nil, err
 	}
 	store, err := s.ckptFor(req.GetSessionId())
+	if err != nil {
+		return nil, err
+	}
+	if err := store.Save(cp, false); err != nil {
+		return nil, toStatus(err)
+	}
+	return &alethv1.CheckpointInfo{
+		CheckpointId:       cp.ID,
+		SessionId:          cp.SessionID,
+		Label:              cp.Label,
+		PlanRevision:       cp.PlanRevision,
+		GraphVersion:       cp.GraphVersion,
+		BudgetSnapshotHash: cp.BudgetHash,
+		CreatedAt:          timestamppb.New(cp.createdAt),
+	}, nil
+}
+
+// snapshotCheckpoint 构造（但不保存）一个检查点。
+//
+// 拆出来是为了让"快照不完整时的 Warnings"可被单独测试 ——
+// 那些告警**不进 proto**（契约的 `CheckpointInfo` 没有告警字段），
+// 因此只能从内部结构观察。
+func (s *Server) snapshotCheckpoint(ctx context.Context, sessionID, label string) (*Checkpoint, error) {
+	if err := ctxErr(ctx); err != nil {
+		return nil, err
+	}
+	g, err := s.graphFor(sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -173,25 +232,51 @@ func (s *Server) Checkpoint(ctx context.Context, req *alethv1.CheckpointRequest)
 	s.mu.Unlock()
 
 	now := s.now()
-	cp := &Checkpoint{
-		ID:           fmt.Sprintf("cp_%s_%d", req.GetSessionId(), n),
-		SessionID:    req.GetSessionId(),
-		Label:        req.GetLabel(),
+	// 跨模块状态快照（05 §6.2 的 `graph_version` 与 `budget_snapshot_hash`）。
+	//
+	// ★ 取不到时**留空并记 warning**，不编造值。
+	// 一个伪造的版本号会让"rewind 后证据一致"看起来有据可依，而实际没有 ——
+	// 那比缺失更糟（`docs/10` §0：不能让"没查"伪装成"没问题"）。
+	graphVersion, budgetHash, snapWarnings := s.snapshotFor(ctx, sessionID)
+
+	return &Checkpoint{
+		ID:           fmt.Sprintf("cp_%s_%d", sessionID, n),
+		SessionID:    sessionID,
+		Label:        label,
 		PlanRevision: g.PlanRevision,
-		BudgetHash:   "", // 预算快照由 M6 Governor 提供（I6 接线预留）
+		GraphVersion: graphVersion,
+		BudgetHash:   budgetHash,
 		Graph:        g.ToProto(),
-	}
-	if err := store.Save(cp, false); err != nil {
-		return nil, toStatus(err)
-	}
-	return &alethv1.CheckpointInfo{
-		CheckpointId: cp.ID,
-		SessionId:    cp.SessionID,
-		Label:        cp.Label,
-		PlanRevision: cp.PlanRevision,
-		GraphVersion: cp.GraphVersion,
-		CreatedAt:    timestamppb.New(now.UTC()),
+		Warnings:     snapWarnings,
+		createdAt:    now,
 	}, nil
+}
+
+// snapshotFor 取跨模块状态快照。
+//
+// 未注入 `SnapshotSource` 时返回空值与说明性告警 ——
+// **不返回错误**：检查点本身仍有价值（图快照 + 计划版本），
+// 缺的只是"能与其他模块的版本对齐"这一层。把整次 Checkpoint 变成
+// 失败会让调用方失去图快照，代价更大。
+func (s *Server) snapshotFor(ctx context.Context, sessionID string) (graphVersion, budgetHash string, warnings []string) {
+	if s.snapshots == nil {
+		return "", "", []string{
+			"no SnapshotSource wired: graph_version and budget_snapshot_hash are empty; " +
+				"this checkpoint cannot be aligned with M2/M6 state",
+		}
+	}
+	// 两个来源各自独立：一个失败不影响另一个。
+	if v, err := s.snapshots.GraphVersion(ctx, sessionID); err != nil {
+		warnings = append(warnings, "graph version unavailable: "+err.Error())
+	} else {
+		graphVersion = v
+	}
+	if h, err := s.snapshots.BudgetSnapshotHash(ctx, sessionID); err != nil {
+		warnings = append(warnings, "budget snapshot unavailable: "+err.Error())
+	} else {
+		budgetHash = h
+	}
+	return graphVersion, budgetHash, warnings
 }
 
 // Rewind 回到检查点。
