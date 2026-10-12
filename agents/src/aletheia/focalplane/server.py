@@ -26,12 +26,20 @@ from aletheia.focalplane.ledger import Ledger, LedgerError
 from aletheia.gen.aleth.v1 import aletheia_pb2 as pb
 from aletheia.gen.aleth.v1.aletheia_pb2_grpc import (
     LedgerServiceServicer,
+    TerminationServiceServicer,
     add_LedgerServiceServicer_to_server,
+    add_TerminationServiceServicer_to_server,
 )
 
 
-class FocalPlaneServicer(LedgerServiceServicer):
-    """LedgerService → FocalPlane 门面的适配层（无业务逻辑）。"""
+class FocalPlaneServicer(LedgerServiceServicer, TerminationServiceServicer):
+    """LedgerService + TerminationService → FocalPlane 门面的适配层（无业务逻辑）。
+
+    I7 起同时承载 TerminationService（05 §5.4）：终止仲裁是 M4 的职责
+    （modules/M4 §3.1 R7），与账本同属焦平面。放在同一个 servicer 里
+    是因为两者共享同一个 FocalPlane 实例 —— Arbiter 需要查询账本
+    （证据是否存在、是否过闸门），拆成两个进程反而要引入跨进程查询。
+    """
 
     def __init__(self, plane: FocalPlane) -> None:
         self._plane = plane
@@ -82,15 +90,43 @@ class FocalPlaneServicer(LedgerServiceServicer):
             request.detail,
         )
 
+    # ------------------------------------------------------------------
+    # TerminationService（05 §5.4）· I7 交付
+    # ------------------------------------------------------------------
+    #
+    # 09 §R6：RequestTermination 是全系统**唯一**的会话终止入口（除熔断）。
+    # agent 无权自行终止 —— 本 servicer 把请求交给 M4 的 Arbiter 做四道
+    # 结构化校验，不采信 agent 的任何自我评估。
 
-def serve(db_path: str, listen_addr: str, pubkey_hex: str) -> None:
+    def RequestTermination(self, request, context):
+        return self._plane.request_termination(request)
+
+
+def serve(
+    db_path: str,
+    listen_addr: str,
+    pubkey_hex: str,
+    *,
+    scope_checker=None,
+) -> None:
     verifier = Ed25519Verifier(pubkey_hex)
     plane = FocalPlane(Ledger(db_path, verifier))
+    if scope_checker is not None:
+        # scope 判定由 M6 ScopeKernel 提供（M4 不做范围裁决）。
+        # 未注入时 Arbiter 的第 ② 道校验 fail-closed（全部拒绝归属确认）。
+        plane.set_scope_checker(scope_checker)
+
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    add_LedgerServiceServicer_to_server(FocalPlaneServicer(plane), server)
+    servicer = FocalPlaneServicer(plane)
+    add_LedgerServiceServicer_to_server(servicer, server)
+    add_TerminationServiceServicer_to_server(servicer, server)
     server.add_insecure_port(listen_addr)
     server.start()
-    print(f"focalplane serving on {listen_addr} (ledger: {db_path})", flush=True)
+    print(
+        f"focalplane serving on {listen_addr} (ledger: {db_path}; "
+        f"termination arbiter: {'scope wired' if scope_checker else 'scope NOT wired'})",
+        flush=True,
+    )
     server.wait_for_termination()
 
 
