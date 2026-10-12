@@ -9,6 +9,65 @@
 
 ## [Unreleased]
 
+### 安全修复 · 授权有效期从未被校验 + CLI 谎报启动成功（2026-10-12）
+
+> `roe.schema.json` 把有效期校验**明确指派**给 Scope Kernel，
+> 而全项目 `grep valid_until core/ --include='*.go'` **返回空** ——
+> 一条写进冻结 schema 的安全约束从未被实现。
+
+**Security**
+- **授权有效期从未被校验**（最高优先级）：`ParseScopeFile` 只解析
+  `targets` 段，对应 `05` 的 `Scope` 结构 —— **它看不到 `authorization` 段**。
+  而 daemon 用的是它，于是时间窗从未进入任何校验路径。
+  **后果**：一份**已过期**的授权凭证会被正常接受 ——
+  等于让授权无限续期，直接违背 `08` §1.1 的"无凭证不启动"。
+  - 补充 `core/scopekernel/authorization.go`：`ValidateAuthorizationWindow`
+    强制 `roe.schema.json` 指派的三条约束（`valid_until > valid_from`、
+    跨度 ≤ 90 天、当前时刻在窗口内）。
+  - `ValidateROEFile(path, now)` 成为 **daemon 与 CLI 共用的唯一完整入口** ——
+    两处各写一份必然漂移，而漂移的那一侧就是绕过路径。
+  - 判据函数是**纯函数**（`now` 由调用方传入），因此"过期"与"未生效"
+    都能被确定性测试覆盖，不必 sleep 或改系统时钟。
+
+**Fixed**
+- **CLI 谎报启动成功**（实测确认）：
+
+```
+$ aleth daemon start --authorization 损坏的.yaml
+alethd started (pid 61744), listening on 127.0.0.1:7723   ← 谎报
+$ echo $?
+0                                                          ← 假成功
+（daemon 实际已崩溃退出，只在日志里有 yaml 解析错误）
+```
+
+  根因：CLI 只做 `os.Stat` 检查**文件存在**，不看内容。
+  对 `06` §3.2 的「④ CI 集成」是致命的：CI 看到 exit 0 + "started"
+  就继续，然后在某个**无关的**步骤失败 —— 排查方向被完全带偏。
+- **退出码不符合 `08` §1.3**：该节的流程图里四种拒绝情形
+  （未提供 / 不可读 / 过期 / 字段不全）**全部指向退出码 3**，
+  而 CLI 一律 `os.Exit(1)`。用 `credentialError` 类型映射
+  （而非字符串匹配 —— 那会在改文案时静默失效）。
+
+**Tests**
+- `core/scopekernel/authorization_test.go` —— 14 个新用例。
+- **变异验证**（两种破坏都被抓）：
+
+| 变异 | 结果 |
+|---|---|
+| 移除 90 天跨度上限 | ✅ 2 用例失败 |
+| 移除过期检查 | ✅ 2 用例失败 |
+
+**实测（四种拒绝 + 一种通过）**
+
+| 情形 | 退出码 |
+|---|---|
+| 未提供凭证 / 文件不存在 / YAML 损坏 / 已过期 | **3** ✅ |
+| 合规凭证（60 天跨度） | **0** ✅，daemon 实际运行 |
+
+★ 测试中我自己的 fixture 被这条新约束**拦下了**
+（`valid_from` 到 `valid_until` 121 天 > 90）—— 说明约束在起作用。
+顺带核实 `examples/roe.example.yaml` 合规（89 天）。
+
 ### daemon 生命周期修复 + `restart` 补齐（CLI 覆盖率 44% → 53%）（2026-10-12）
 
 > 把"真跑一遍命令树"的方法用到 daemon 生命周期上
