@@ -9,6 +9,53 @@
 
 ## [Unreleased]
 
+### I11 补充 · MCP 接口（双向中的提供者方向）+ 两个服务的接线（2026-10-12）
+
+> 逐服务的装配审计发现：契约的 10 个 service 里只有 6 个真正注册到
+> `registry`，且 `04 §I11` 明确要求的「MCP 接口」一直是空占位目录。
+> 本轮补齐。
+
+**Added**
+- **MCP 接口**（`06` §3.4 的"作为提供者"）：
+  - `core/mcp/gate.go` —— `Gate` 接口 + **默认拒绝一切**的闸门。
+    MCP 的调用方是外部 agent，**不受本项目红线约束**，
+    因此"未配置闸门"必须是拒绝（与 `08` §1.1「无凭证不启动」同源）。
+  - `core/mcp/server.go` —— 5 个工具：`trace_finding` / `project_mind_map` /
+    `assemble_context` / `list_adapters`（只读）+ `execute_tool`（有副作用）。
+    **不暴露"终止会话"** —— `09` §R6 规定终止唯一入口是内部仲裁通道。
+  - `core/mcp/servicegate.go` —— 闸门实现**复用既有服务**
+    （ScopeService / GatewayService / GovernorService），不重新判断。
+  - `cmd/aleth/mcp.go` —— `aleth mcp` 子命令（stdio transport）。
+    daemon 不可达时**启动即失败**并给出可操作提示。
+- **`core/gateway/server.go`** —— GatewayService 的 gRPC 适配。
+  `core/gateway` 在 I3 就实现并测试了，但此前**只在进程内**被 Ingest 消费，
+  从未注册为 gRPC 服务。
+- **`core/focalplane` 的 TerminationProxy** —— I7 的终止仲裁已在 Python
+  实现并测试（51 组伪达成用例），但 Go 侧从未装代理，
+  因此 `registry.Termination` 一直是 `unimplementedTermination`。
+
+**Changed**
+- **契约的 10 个服务由 6 个装配到 9 个**。唯一未装的是 `SandboxService`
+  （无实现，需容器运行时签发 `exec_id`）。
+
+**Security / 诚实性**
+- **MCP 不得有绕过闸门路径**（`06` §3.4）：`execute_tool` 走
+  **本地回环 gRPC** 而非直连 Go 结构体 —— 直连会绕过 gRPC 拦截器链
+  （观测 + 脱敏），"走与 WebUI 相同的路径"这句承诺就不成立。
+  有测试断言**闸门拒绝时工具绝不执行**（即闸门是事前阻断而非事后告警）。
+- **GatewayService：真实值不出现在任何响应里**（`07` §A2）。
+  契约的 `TokenMapping` 只有 category/token/masked_value ——
+  **没有可放真实值的字段**，因此这是类型系统层面的保证。
+  另有测试断言"Tokenize → ScanOutbound 组合必然干净"（Q5 的核心性质）。
+- **MCP 闸门范围裁决失败时不执行后续步骤** —— 越界请求不消耗预算（P-4）。
+
+**Fixed**
+- `go.mod` 此前**缺少新增依赖的四项说明**（`docs/09` §5 #3 要求
+  用途/许可证/维护活跃度/替代方案）。已为 grpc-web、sqlite 与
+  新增的 go-sdk 补齐，并标注**版本约束**：
+  `go-sdk v1.0.0` 是最后一个 `go 1.23` 的版本，v1.1+ 要求 go >= 1.25
+  会顶掉 CI 的 `GO_VERSION=1.24`。
+
 ### I12 前置 · 闭合 I6 遗留的两处缺口（2026-10-12）
 
 > I6 交付时留下两处明确登记的缺口：熔断器只实现 6/8 类、
