@@ -9,6 +9,45 @@
 
 ## [Unreleased]
 
+### I12 前置 · 闭合 I6 遗留的两处缺口（2026-10-12）
+
+> I6 交付时留下两处明确登记的缺口：熔断器只实现 6/8 类、
+> 检查点的跨模块状态字段恒为空。本轮全部闭合。
+
+**Added**
+- **熔断器补齐 2 类**（`M5` §4.4 的完整 8 类）：
+  - 「总运行时长上限 → 硬熔断」：新增 `MaxSessionDuration`（默认 24h，
+    与 P0 门禁的稳定性测试时长对齐）与 `CircuitState.SessionElapsed`。
+    判定**排在幻觉占比之前** —— 时长是确定性的客观边界，
+    而幻觉占比依赖计数质量，已超时数倍的会话应先停。
+  - 「单任务 token 超预算 → 强制收窄光圈重试 1 次」：
+    新增 `MaxTaskTokens`（默认 50000）与 `CircuitState.CurrentTaskTokens`。
+    动作是 `ActionNarrowAperture` 而**非** `ActionStopAgent` ——
+    规格原文明确要求"重试 1 次，失败则 SKIPPED"。
+- **检查点记录跨模块状态快照**：新增 `orchestrate.SnapshotSource` 接口
+  + `cmd/alethd/checkpoint_adapter.go`（M2 的 `StateHash` → `graph_version`；
+  预算状态哈希 → `budget_snapshot_hash`）。
+  **`CheckpointInfo` 的两个字段不再是空的** ——
+  此前恒空让检查点无法与其他模块状态对齐，而那正是
+  `04 §I6 DoD③`「rewind 后证据一致性校验」需要比对的东西。
+
+**Fixed**
+- **Q12 门禁回归**：I5 的光圈页 placeholder 写了实例内网地址
+  （`10.40.23.5`），触发"前端源码中出现内网 IP"检查。
+  **修源码而非门禁**（`docs/09` R2）—— 改用文档安全示例域名。
+  根因是 I5 提交时只跑了 `lint.sh`（不含 Q12），未跑整套门禁。
+- **熔断器零阈值语义不一致**：无进展条件是六类里唯一缺
+  `th.MaxNoProgressSteps > 0` 守卫的一处 ——
+  零值会让"任何一步"都触发 rewind，与其余五类的"零值 = 显式禁用"
+  语义相反。由新增的 `TestZeroThresholdDisablesThatCondition` 抓到。
+
+**Security / 诚实性**
+- 检查点快照取不到时**留空并告警，不编造值** ——
+  伪造的版本号会让"rewind 后证据一致"看起来有据可依而实际没有
+  （`docs/10` §0）。`Checkpoint.Warnings` 记录具体原因
+  （"来源没版本概念"与"根本没接线"的处置完全不同）。
+- 两个快照来源**各自独立**：一个失败不影响另一个（有测试覆盖）。
+
 ### I11 · M9 评测 Harness + 报告导出页（十个页面全部交付）（2026-10-12）
 
 > 定位：`04` §I11 ｜ `modules/M9`。**M9 是项目诚实性的技术保障 ——
