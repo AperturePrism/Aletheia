@@ -55,9 +55,19 @@ require (
 
 	// OpenTelemetry。go.opentelemetry.io/otel + /otel/trace，Apache-2.0，CNCF 项目。
 	// 用途：modules/M6 §8 全链路追踪与决策溯源（docs/02 §7.5 可观测性栈）。
+	//   实际使用点：core/obs（span 创建与 context 传播）+ cmd/alethd（gRPC
+	//   拦截器）。默认装 noop provider —— 零遥测（D18）。
+	// 许可证：Apache-2.0（CNCF 毕业项目）。
+	// 维护活跃度：高（CNCF 可观测性事实标准，多语言一致）。
 	// 替代方案：自研 trace 上下文（不采纳 —— 生态互通是 D14 的核心诉求：
 	//   WebUI 内置轻量查看器与 Grafana/Loki 都要能消费同一份数据）。
+	//   /otel/sdk 仅测试用（tracetest.SpanRecorder 断言 span 真被创建）。
+	// ★ 版本约束：**必须 v1.29.0**。`go get` 默认会拉到 v1.47.0，
+	//   它要求 **go >= 1.26**，会顶掉 CI 的 GO_VERSION=1.24
+	//   （本文件已多次踩到这类升级陷阱）。升级前务必
+	//   `go mod edit -go 1.24` 并核对 `go` 指令。
 	go.opentelemetry.io/otel v1.29.0
+	go.opentelemetry.io/otel/sdk v1.29.0
 	go.opentelemetry.io/otel/trace v1.29.0
 
 	// 结构化日志。go.uber.org/zap，MIT，Uber 维护，Go 日志事实标准。
@@ -77,7 +87,7 @@ require (
 require (
 	// —— 间接依赖（go mod tidy 生成，禁止手工增删）——
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect

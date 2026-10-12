@@ -392,13 +392,25 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 			zap.Uint64("session_tokens", sessionBudget))
 	}
 
+	// OTel 接线（M6 T6.2）——默认零遥测：装 noop provider，
+	// span 会被创建与传递但没有 exporter 接收（07/06 的"默认零遥测"要求）。
+	tracingMode := installTracing(cfg.Telemetry.Enabled)
+	logger.Info("observability (OTel) wired", zap.String("mode", tracingMode))
+
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
+			// OTel span 拦截器（M6 T6.2）：为每个调用创建 span，
+			// 承载 §8.2 的三条可追溯链路。默认 noop provider ——
+			// span 会被创建与传递，但无 exporter 接收（零遥测，D18）。
+			obsUnaryInterceptor(),
 			// 观测拦截器：把 request 关联到 trace（modules/M6 §8.1）。
 			unaryObservabilityInterceptor(logger),
 			// 脱敏拦截器（I0 版）：确保出站日志不含真实敏感值。
 			// I3 换成真正的 Privacy Gateway 校验（modules/M6 §4.2）。
 			unaryRedactionInterceptor(logger),
+		),
+		grpc.ChainStreamInterceptor(
+			obsStreamInterceptor(),
 		),
 	)
 	registry.RegisterAll(grpcServer)
