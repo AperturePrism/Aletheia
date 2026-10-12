@@ -12,6 +12,7 @@ import { ApertureContextPage } from "./views/aperture/ApertureContextPage";
 import { DecisionQueuePage } from "./views/decision/DecisionQueuePage";
 import { CostPanelPage } from "./views/cost/CostPanelPage";
 import { ConflictMatrixPage } from "./views/conflict/ConflictMatrixPage";
+import { ReportExportPage } from "./views/report/ReportExportPage";
 import "./styles/app.css";
 
 // Aletheia WebUI 入口。
@@ -57,11 +58,9 @@ const router = createBrowserRouter([
       // 人类介入点是设计而非缺陷（全自主 21% vs 有人类提示 64%）。
       { path: "decisions", element: <DecisionQueuePage /> },
 
-      // 06 §6.1 页面 8 · 报告与导出 —— I11
-      {
-        path: "report",
-        element: <NotImplementedPage pageName="报告与导出" iteration="I11" module="M9" />,
-      },
+      // 06 §6.1 页面 8 · 报告与导出 —— I11 交付。
+      // 分层报告浏览（主报告/附录/调试）+ 导出 Markdown/PDF/SARIF。
+      { path: "report", element: <ReportExportPage /> },
 
       // 06 §6.1 页面 9 · 范围与授权管理 —— I3
       // 注意：授权凭证录入走 CLI 而非 WebUI（docs/06 §3.3「不做首次配置向导」/

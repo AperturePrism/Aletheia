@@ -1,0 +1,226 @@
+/* 报告与导出（06 §6.1 页面 8）的样式。
+ *
+ * 设计重点：**分层是可见的** —— 主报告 / 附录 / 调试三层的切换
+ * 必须一眼可辨，因为"这条结论属于哪一层"正是报告可信度的来源。
+ *
+ * 契约在类型层面杜绝「把推测写进报告」（05 §7.2 的 proto 注释），
+ * 因此 UI 的分层必须与之对齐：主报告层不应出现任何 CANDIDATE，
+ * 调试层要明确标注它是**原始数据**而非报告的一层。 */
+
+.rp-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+
+.rp-tab {
+  padding: 8px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rp-tab:hover {
+  color: var(--text);
+}
+
+.rp-tab-active {
+  color: #2f6feb;
+  border-bottom-color: #2f6feb;
+  font-weight: 600;
+}
+
+.rp-layer-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0 0 16px;
+  line-height: 1.7;
+}
+
+.rp-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+.rp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  flex: 1 1 320px;
+}
+
+.rp-field input {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input, transparent);
+  color: inherit;
+  font-size: 13px;
+}
+
+/* ---- 导出栏 ---- */
+
+.rp-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  margin-bottom: 18px;
+  font-size: 12px;
+}
+
+.rp-export-label {
+  color: var(--text-dim);
+  margin-right: 4px;
+}
+
+.rp-export button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rp-export-note {
+  flex: 1 1 100%;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 4px;
+}
+
+/* ---- 摘要 ---- */
+
+.rp-summary {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+.rp-summary strong {
+  color: var(--text);
+}
+
+.rp-ok {
+  color: #1f9d55;
+}
+
+.rp-bad {
+  color: #d33a2c;
+  font-weight: 600;
+}
+
+/* 归因不一致必须显著 —— 它是 P0 级事件（AIxCC 错误关联重罚）。 */
+.rp-alert {
+  padding: 12px 16px;
+  border-left: 4px solid #d33a2c;
+  background: #d33a2c11;
+  border-radius: 0 5px 5px 0;
+  margin-bottom: 18px;
+}
+
+.rp-alert strong {
+  color: #d33a2c;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.rp-alert p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+.rp-alert ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---- 表格 ---- */
+
+.rp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.rp-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rp-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle, #8882);
+}
+
+.rp-table code {
+  font-size: 11px;
+}
+
+.rp-block {
+  margin-top: 22px;
+}
+
+.rp-block h2 {
+  font-size: 13px;
+  margin: 0 0 9px;
+}
+
+.rp-evidence {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+.rp-evidence li {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-subtle, #8881);
+}
+
+.rp-evidence-meta {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* 打印样式 —— PDF 走浏览器打印（见组件的说明）。 */
+@media print {
+  .app-nav,
+  .rp-tabs,
+  .rp-toolbar,
+  .rp-export,
+  .page-hint {
+    display: none !important;
+  }
+
+  .app-main {
+    padding: 0;
+  }
+}
