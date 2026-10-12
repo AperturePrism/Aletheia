@@ -280,7 +280,21 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 			return errRuntime{err: err}
 		}
 		registry.Ledger = proxy
-		logger.Info("ledger proxy wired", zap.String("focalplane_addr", cfg.Focalplane.Addr))
+
+		// I7 的 TerminationService 同样在 Python focalplane
+		// （`aletheia/focalplane/arbiter.py`，51 组伪达成用例）。
+		//
+		// 为什么不在 Go 侧重写：终止仲裁是红线之一（09 §R6），
+		// 两套实现必然漂移，而漂移的那一侧就是绕过路径。
+		// 因此这里**只转发**。
+		termProxy, err := focalplane.NewTerminationProxy(cfg.Focalplane.Addr)
+		if err != nil {
+			logger.Error("cannot wire termination proxy", zapErr(err))
+			return errRuntime{err: err}
+		}
+		registry.Termination = termProxy
+		logger.Info("ledger + termination proxies wired",
+			zap.String("focalplane_addr", cfg.Focalplane.Addr))
 	} else {
 		logger.Info("focalplane not configured; LedgerService stays UNIMPLEMENTED (I2)")
 	}
@@ -340,6 +354,25 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	logger.Info("orchestrator (M5) wired",
 		zap.String("next_ready", "deterministic: topological sort + resource constraints"),
 		zap.Bool("checkpoint_snapshots_wired", graphStore != nil))
+
+	// I6 补充：GatewayService 的 gRPC 接线。
+	//
+	// `core/gateway` 在 I3 就实现并测试了（确定性 token 映射 / 回注 /
+	// 五类出站扫描），但此前只在**进程内**被 Ingest 消费
+	// （`gatewayAdapter`），从未注册为 gRPC 服务 ——
+	// `registry.Gateway` 一直是 unimplementedGateway。
+	//
+	// 这带来两个实际缺口：
+	//   1. 前端与其他服务无法查询"某段文本会被脱敏成什么"；
+	//   2. 06 的「实时执行流」无法展示脱敏过程。
+	//
+	// 注册后，会话隔离由 GatewayService 自己按 session_id 管理
+	// （与 Ingest 内部那个实例**共享同一份语义**但各自独立的映射表 ——
+	// 因为契约没有"跨调用共享映射表"的表达，而共享会让两个入口的
+	// token 编号互相干扰）。
+	registry.Gateway = gateway.NewServer()
+	logger.Info("gateway (privacy) service wired",
+		zap.String("note", "tokenize/detokenize/scan_outbound over gRPC"))
 
 	// I6（04 §4）：CostGovernor 的 gRPC 接线（补齐 I3 遗留）。
 	//

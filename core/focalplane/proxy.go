@@ -86,6 +86,73 @@ func (p *Proxy) ReportHallucination(ctx context.Context, req *alethv1.ReportHall
 	})
 }
 
+// ---- TerminationService（05 §5.4）· I7 交付，本次补齐 Go 侧接线 ----
+
+// TerminationProxy 把 TerminationService 转发到 Python focalplane。
+//
+// # 为什么终止仲裁在 Python 而不在 Go
+//
+// M4（焦平面）的实现语言是 Python（02 §7.1 的技术选型），
+// 且 I7 的 Termination Arbiter 已在那里交付并测试
+// （`agents/src/aletheia/focalplane/arbiter.py`，51 组伪达成用例）。
+//
+// 在 Go 侧重写一份会让**同一判定有两套实现** —— 而"agent 无权自行
+// 终止"是本项目的红线之一（09 §R6），两套实现必然漂移，
+// 漂移的那一侧就是绕过路径。因此这里**只转发**。
+type TerminationProxy struct {
+	alethv1.UnimplementedTerminationServiceServer
+
+	addr   string
+	client alethv1.TerminationServiceClient
+	conn   *grpc.ClientConn
+}
+
+// NewTerminationProxy 连接 focalplane 的 TerminationService。
+func NewTerminationProxy(addr string) (*TerminationProxy, error) {
+	if !isLoopbackAddr(addr) {
+		return nil, fmt.Errorf("focalplane addr must be loopback, got %q", addr)
+	}
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("dial focalplane %q: %w", addr, err)
+	}
+	return &TerminationProxy{
+		addr:   addr,
+		conn:   conn,
+		client: alethv1.NewTerminationServiceClient(conn),
+	}, nil
+}
+
+// Close 释放连接。
+func (p *TerminationProxy) Close() error { return p.conn.Close() }
+
+// RequestTermination 转发终止请求（09 §R6 的唯一终止入口）。
+func (p *TerminationProxy) RequestTermination(
+	ctx context.Context, req *alethv1.TerminationRequest,
+) (*alethv1.TerminationDecision, error) {
+	resp, err := p.client.RequestTermination(ctx, req)
+	if err != nil {
+		var zero *alethv1.TerminationDecision
+		if status.Code(err) == codes.Unavailable {
+			st := status.New(codes.Unavailable,
+				"focalplane (termination arbiter) unreachable at "+p.addr+
+					"; start it via `uv run python -m aletheia.focalplane.server`")
+			d, derr := st.WithDetails(&alethv1.Error{
+				Code: alethv1.ErrorCode_UPSTREAM_UNAVAILABLE,
+				Message: "termination arbitration unavailable; " +
+					"without it an agent must NOT be allowed to end the session implicitly",
+				Remediation: "start the focalplane process, or the session simply continues " +
+					"(fail-closed: no implicit termination path exists)",
+			})
+			if derr == nil {
+				return zero, d.Err()
+			}
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
 // forward 统一处理「上游不可达」的显式失败（P-4）。
 func forward[Resp any](ctx context.Context, addr string, call func() (Resp, error)) (Resp, error) {
 	resp, err := call()
