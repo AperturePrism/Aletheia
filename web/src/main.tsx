@@ -11,6 +11,7 @@ import { MindMapPage } from "./views/map/MindMapPage";
 import { ApertureContextPage } from "./views/aperture/ApertureContextPage";
 import { DecisionQueuePage } from "./views/decision/DecisionQueuePage";
 import { CostPanelPage } from "./views/cost/CostPanelPage";
+import { ConflictMatrixPage } from "./views/conflict/ConflictMatrixPage";
 import "./styles/app.css";
 
 // Aletheia WebUI 入口。
@@ -47,11 +48,10 @@ const router = createBrowserRouter([
       // 它让「取舍」可见，同时是 M3 召回率问题的诊断工具。
       { path: "aperture", element: <ApertureContextPage /> },
 
-      // 06 §6.1 页面 6 ★ 冲突矩阵视图 —— I8
-      {
-        path: "conflicts",
-        element: <NotImplementedPage pageName="冲突矩阵视图 ★" iteration="I8" module="M7" coreView />,
-      },
+      // 06 §6.1 页面 6 ★ 冲突矩阵视图 —— I8 交付。
+      // 本项目三个核心视图的最后一个（docs/09 R9：不可省略）。
+      // 「打不通但有缺陷」是最高价值象限，纯 CLI 输出会把它淹没。
+      { path: "conflicts", element: <ConflictMatrixPage /> },
 
       // 06 §6.1 页面 7 · 人机协同决策队列 —— I6 交付。
       // 人类介入点是设计而非缺陷（全自主 21% vs 有人类提示 64%）。
