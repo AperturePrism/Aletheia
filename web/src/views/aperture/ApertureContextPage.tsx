@@ -91,7 +91,7 @@ export function ApertureContextPage() {
           <span>焦点提示（任务目标 / 假设）</span>
           <input
             value={focusHint}
-            placeholder="如 10.40.23.5 或 http://host/api/v2 —— 留空 = 全景"
+            placeholder="如 app.example.test 或 http://app.example.test/api/v2 —— 留空 = 全景"
             onChange={(e) => setFocusHint(e.target.value)}
           />
         </label>
