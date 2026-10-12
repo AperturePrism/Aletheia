@@ -81,6 +81,20 @@ export const apertureClient = clientFactory.create(
   channel,
 ) as unknown as ApertureServiceClient;
 
+// I6：OrchestratorService 客户端（人机协同决策队列，06 页面 7 的数据源）。
+import { OrchestratorServiceDefinition } from "./orchestratorDefinition";
+export const orchestratorClient = clientFactory.create(
+  OrchestratorServiceDefinition,
+  channel,
+) as unknown as OrchestratorServiceClient;
+
+// I6：GovernorService 客户端（成本与预算面板，06 页面 10 的数据源）。
+import { GovernorServiceDefinition } from "./governorDefinition";
+export const governorClient = clientFactory.create(
+  GovernorServiceDefinition,
+  channel,
+) as unknown as GovernorServiceClient;
+
 // 说明：05 契约当前只生成了 *ServiceClient / *ServiceImplementation 接口
 // （ts-proto 的 outputServices=nice-grpc），没有生成 ServiceDefinition 常量，
 // 而 nice-grpc-web 的 createClient() 需要它才能实例化客户端。

@@ -35,6 +35,7 @@ import (
 	"github.com/AperturePrism/aleth/core/config"
 	"github.com/AperturePrism/aleth/core/focalplane"
 	"github.com/AperturePrism/aleth/core/gateway"
+	"github.com/AperturePrism/aleth/core/governor"
 	"github.com/AperturePrism/aleth/core/ingest"
 	"github.com/AperturePrism/aleth/core/ingest/httpx"
 	"github.com/AperturePrism/aleth/core/ingest/nmap"
@@ -323,6 +324,25 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	registry.Orchestrator = orchestrate.NewServer()
 	logger.Info("orchestrator (M5) wired",
 		zap.String("next_ready", "deterministic: topological sort + resource constraints"))
+
+	// I6（04 §4）：CostGovernor 的 gRPC 接线（补齐 I3 遗留）。
+	//
+	// I3 已实现并测试 core/governor（预扣制 + 双阈值熔断），但当时未接
+	// gRPC —— registry.Governor 一直是 unimplementedGovernor。04 §I6 的
+	// 「成本与预算面板」（06 页面 10）需要它才能显示实时消耗。
+	//
+	// 预算来源：config 的 budget.session_tokens。未配置时（0）
+	// GovernorService 的 Reserve 会 fail-closed 拒绝执行 —— 与
+	// 「无预算的会话是一个永不熔断的熔断器」同一判据（M6 §6）。
+	sessionBudget := cfg.Budget.SessionTokens
+	registry.Governor = governor.NewServer(func(string) uint64 { return sessionBudget })
+	if sessionBudget == 0 {
+		logger.Warn("no session token budget configured (budget.session_tokens=0); " +
+			"GovernorService will refuse all Reserve calls (fail-closed, M6 §6)")
+	} else {
+		logger.Info("governor (M6 cost) wired",
+			zap.Uint64("session_tokens", sessionBudget))
+	}
 
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(

@@ -9,6 +9,8 @@ import { ScopeAuthorizationPage } from "./views/scope/ScopeAuthorizationPage";
 import { EvidenceChainPage } from "./views/evidence/EvidenceChainPage";
 import { MindMapPage } from "./views/map/MindMapPage";
 import { ApertureContextPage } from "./views/aperture/ApertureContextPage";
+import { DecisionQueuePage } from "./views/decision/DecisionQueuePage";
+import { CostPanelPage } from "./views/cost/CostPanelPage";
 import "./styles/app.css";
 
 // Aletheia WebUI 入口。
@@ -51,11 +53,9 @@ const router = createBrowserRouter([
         element: <NotImplementedPage pageName="冲突矩阵视图 ★" iteration="I8" module="M7" coreView />,
       },
 
-      // 06 §6.1 页面 7 · 人机协同决策队列 —— I6
-      {
-        path: "decisions",
-        element: <NotImplementedPage pageName="人机协同决策队列" iteration="I6" module="M5" />,
-      },
+      // 06 §6.1 页面 7 · 人机协同决策队列 —— I6 交付。
+      // 人类介入点是设计而非缺陷（全自主 21% vs 有人类提示 64%）。
+      { path: "decisions", element: <DecisionQueuePage /> },
 
       // 06 §6.1 页面 8 · 报告与导出 —— I11
       {
@@ -69,11 +69,9 @@ const router = createBrowserRouter([
       // scope 与越界拦截审计视图。
       { path: "scope", element: <ScopeAuthorizationPage /> },
 
-      // 06 §6.1 页面 10 · 成本与预算面板 —— I6
-      {
-        path: "cost",
-        element: <NotImplementedPage pageName="成本与预算面板" iteration="I6" module="M6" />,
-      },
+      // 06 §6.1 页面 10 · 成本与预算面板 —— I6 交付。
+      // 预算与光圈是同一约束的两端（M3 §4.1 恒定曝光）。
+      { path: "cost", element: <CostPanelPage /> },
 
       { path: "*", element: <NotImplementedPage pageName="未知页面" iteration="I0" /> },
     ],

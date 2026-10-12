@@ -111,6 +111,9 @@ type Config struct {
 	// Focalplane 内部 LedgerService 通道（I2）。仅回环 —— 校验见
 	// validateFocalplane；L3 实现在 Python（agents focalplane），alethd 转发。
 	Focalplane FocalplaneConfig `mapstructure:"focalplane"`
+
+	// Budget 会话级 token 预算（M6 §6 / 05 §6.3 GovernorService）。
+	Budget BudgetConfig `mapstructure:"budget"`
 }
 
 // ServerConfig 监听与 TLS。
@@ -207,6 +210,22 @@ type FocalplaneConfig struct {
 	Addr string `mapstructure:"addr"`
 }
 
+// BudgetConfig 是会话级 token 预算（M6 §6 CostGovernor，05 §6.3）。
+//
+// 为什么必须显式配置而不能有默认值：预算就是成本约束本身。
+// governor.NewGovernor 拒绝零预算（"无预算的会话是一个永不熔断的
+// 熔断器"），因此这里也**不给默认值** —— 未配置时 SessionTokens 为 0，
+// GovernorService 的 Reserve 会 fail-closed 拒绝执行。
+//
+// 这与 08 §1.1「无凭证不启动」是同一条思路：把"忘了配置"变成
+// "显式拒绝"，而不是"用一个猜测的上限跑起来"。
+type BudgetConfig struct {
+	// SessionTokens 单会话的 token 总额上限。
+	//
+	// 0 表示未配置 —— GovernorService 将拒绝所有 Reserve（fail-closed）。
+	SessionTokens uint64 `mapstructure:"session_tokens"`
+}
+
 // Default 返回安全默认配置。
 //
 // 关键点：默认值是"最小权限 + 最小暴露"，不是"最方便"。
@@ -241,6 +260,9 @@ func Default() *Config {
 		//（手动/编排启动）。未配置时 alethd 不装配 Ledger 代理，
 		// LedgerService 显式 UNIMPLEMENTED —— 不假装可用。
 		Focalplane: FocalplaneConfig{Addr: ""},
+		// Budget.SessionTokens 默认 0 = 未配置。刻意不给默认值：
+		// 预算就是成本约束，猜测的上限比"显式拒绝执行"更危险。
+		Budget: BudgetConfig{},
 	}
 }
 
@@ -313,6 +335,8 @@ func setDefaults(v *viper.Viper, cfg *Config) {
 	v.SetDefault("data_handling.no_external_transmission", true)
 
 	v.SetDefault("telemetry.enabled", false)
+
+	v.SetDefault("budget.session_tokens", cfg.Budget.SessionTokens)
 }
 
 // Validate 校验配置的自洽性。
