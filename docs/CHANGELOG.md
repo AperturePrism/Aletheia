@@ -9,6 +9,44 @@
 
 ## [Unreleased]
 
+### I7 · M4 终止仲裁（幻觉终止 0 次通过）（2026-10-12）
+
+> 定位：`04` §I7 ｜ `modules/M4` §4.5。消除 D3（发现随机哈希就宣告
+> 胜利并终止会话）。详见 `docs/iterations/I7-交接.md`。
+
+**Added**
+- **`agents/src/aletheia/focalplane/arbiter.py`** —— Termination Arbiter：
+  - 四道独立结构化校验（目标匹配 / 归属确认 / 证据闸门 / 幻觉检测），
+    **不采信 agent 的任何自我评估**；
+  - **判定顺序刻意按"最便宜且最致命"排**：幻觉检测放最前。若先查证据，
+    精心构造的证据链可以为幻觉背书（`M4` §8 风险栏）；
+  - 幻觉检测三类判据：误判 banner（`searchhsplit`/`login:` 等
+    **100% 假阳性**来源）/ 裸哈希 / 长 Base64；
+  - `GoalSpec` 目标解析（flag/shell/data/unknown），**解析不出则拒绝**
+    （fail-closed —— 放行会让"目标没写清就能随便终止"成为绕过路径）；
+  - 循环检测：同一 agent 被拒 3 次后 guidance 升级为"停止重复"。
+- **`TerminationService` 接线**（`focalplane/server.py`）：
+  `FocalPlaneServicer` 同时承载 LedgerService 与 TerminationService ——
+  两者共享同一 FocalPlane 实例（Arbiter 需查询账本，拆进程反而引入
+  跨进程查询）。
+- **测试套件**（`test_arbiter.py`）：**51 组伪达成用例**
+  （6 类来源）+ **11 组合法终止用例** + 26 个单元测试。
+
+**Changed**
+- `FocalPlane` 新增 `request_termination()` 与 `set_scope_checker()`；
+  scope 未注入时第 ② 道 **fail-closed（全部拒绝）**—— 归属未确认是
+  AIxCC 重罚项（错误关联 -7 分）。
+
+**Fixed**
+- **`root@target:~#` 被误判为幻觉**（由假阴性用例抓到）：token 提取
+  按 `:` 切分把它切成 `~#`（2 字符）→ 落入"信息量不足"分支，
+  **真实的 root shell 达成物被拒**，agent 将永远无法合法终止。
+  修复：新增 `_ACCESS_INDICATOR` 优先判定；`:` 切分限制在"前缀是
+  短标签"时（避免切坏 URL）。
+- **16 字符 Base64 未被识别**（同由假阴性用例抓到）：正则长度下限 20
+  过高 → 落进"长度不足"分支。两者都拒绝但**原因不同**，而原因要写进
+  审计（agent 据此修正）。修复：下限降到 16。
+
 ### I6 · M5 编排层（确定性骨架）（2026-10-11）
 
 > 定位：`04` §I6。本轮交付**确定性部分**，LLM 接线（Agent 池 /
@@ -36,6 +74,21 @@
   `grpcweb.WrapServer`，含**挂载前缀剥离**。
 - **`ConflictEntityIDs`**（`core/prism`）：M3 消费的冲突判据
   （当前有效版本 `version > 1`）。
+- **`GovernorService` gRPC 接线**（`core/governor/server.go`，补齐 I3
+  遗留）：I3 已实现并测试 CostGovernor，但当时未接 gRPC。两点设计：
+  预扣被拒返回**业务结论**（`reserved=false` + 状态 + 原因）而非 gRPC
+  传输错误；无预算来源时 **fail-closed**（不给默认值 —— 猜测的上限
+  比"显式拒绝执行"更危险）。
+- **配置项 `budget.session_tokens`**（默认 0 = 未配置，启动时高亮告警）。
+- **前端人机协同决策队列**（`06` 页面 7）：按 `06 §7.1` 四要素渲染
+  （证据摘要 / **不确定性标注** / 选项 + 影响评估）。不确定性**刻意
+  放在选项之前** —— 先让决策者看到"系统有多确定、缺什么信息"，
+  避免被"看起来很确定"的表述诱导直接点按钮。终止选项仅在触发
+  「涉及会话终止」或「涉及范围边界」时出现（否则是伪选择）。
+- **前端成本与预算面板**（`06` 页面 10）：gauge 上直接画出
+  **80% 收窄线与 100% 熔断线**，并单列「剩余余量」给出到两条线的
+  确切 token 数 —— 只显示"已用 60%"而不显示"还有多少碰到硬约束"
+  无法让使用者判断风险。
 
 **Fixed**
 - **前端 RPC 全断**（I0 起存在，直至本次暴露）：HTTP mux 只挂了静态资源，
