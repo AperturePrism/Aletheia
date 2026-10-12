@@ -101,12 +101,58 @@ func (a *Assembler) Assemble(ctx context.Context, req *alethv1.AssembleRequest) 
 		stop = DefaultStop
 	}
 
+	return a.assembleLoop(ctx, req, stop, Overrides{})
+}
+
+// AssembleWithOverrides 在指定档位之上应用**连续调节**（M3 §7 DoD：
+// "三档光圈 + 连续调节可用"）。
+//
+// # 为什么是进程内 API 而不是新的 RPC
+//
+// `AssembleRequest` 在 `05 §4.2` 是 **[frozen]** 的，没有可放覆盖参数的
+// 字段。按 `docs/09` R1（契约冻结）**不自造 RPC、不改 proto** ——
+// 这与 I6 的 `GetGraph` 缺口、I0 的 `ListSessions` 缺口同一处置。
+//
+// 因此连续调节以**进程内 API** 提供：装配方（`cmd/alethd`）与内部调用方
+// （M5 编排层在下发任务时决定档位参数）可直接使用；gRPC 调用方暂时只能
+// 走三档。补法是在同一个 `contract:` PR 里给 `AssembleRequest` 加三个
+// 可选覆盖字段（max_hops / max_entities / depth_per_entity）。
+//
+// # 覆盖会被记入 ContextBundle
+//
+// 调节后的参数写入 `bundle.aperture`，审计能看到"这一包是用什么参数
+// 装配的"，而不只是档位名。`Stop` 保留原档位（调用方仍知道基准档）。
+func (a *Assembler) AssembleWithOverrides(
+	ctx context.Context, req *alethv1.AssembleRequest, ov Overrides,
+) (*alethv1.ContextBundle, error) {
+	if req == nil {
+		return nil, fmt.Errorf("aperture: nil request")
+	}
+	if req.GetBudgetTokens() == 0 {
+		return nil, fmt.Errorf("aperture: budget_tokens is required (a session without a budget has no exposure constraint)")
+	}
+	stop := req.GetPreferredStop()
+	if stop == alethv1.ApertureSetting_STOP_UNSPECIFIED {
+		stop = DefaultStop
+	}
+	if _, err := ov.Apply(ProfileFor(stop)); err != nil {
+		// 非法组合在进入装配循环前就被拒（不静默接受）。
+		return nil, err
+	}
+	return a.assembleLoop(ctx, req, stop, ov)
+}
+
+// assembleLoop 是装配主循环（含降档重试）。
+func (a *Assembler) assembleLoop(
+	ctx context.Context, req *alethv1.AssembleRequest,
+	stop alethv1.ApertureSetting_Stop, ov Overrides,
+) (*alethv1.ContextBundle, error) {
 	var (
 		lastErr *OverBudgetError
 		tried   []string
 	)
 	for {
-		bundle, err := a.assembleAt(ctx, req, stop)
+		bundle, err := a.assembleAt(ctx, req, stop, ov)
 		if err == nil {
 			// 如实记录试过的档位（审计：调用方要知道降过档）。
 			if len(tried) > 0 {
@@ -137,9 +183,13 @@ func (a *Assembler) Assemble(ctx context.Context, req *alethv1.AssembleRequest) 
 
 // assembleAt 在指定档位上尝试装配一次。
 func (a *Assembler) assembleAt(
-	ctx context.Context, req *alethv1.AssembleRequest, stop alethv1.ApertureSetting_Stop,
+	ctx context.Context, req *alethv1.AssembleRequest,
+	stop alethv1.ApertureSetting_Stop, ov Overrides,
 ) (*alethv1.ContextBundle, error) {
-	profile := ProfileFor(stop)
+	profile, err := ov.Apply(ProfileFor(stop))
+	if err != nil {
+		return nil, err
+	}
 	budget := req.GetBudgetTokens()
 
 	// 步骤 1–2：定位焦点并游走收集候选。
@@ -356,7 +406,7 @@ func (a *Assembler) pack(
 
 	return &alethv1.ContextBundle{
 		BundleId:            bundleID(req.GetTaskId(), stop, estimated),
-		Aperture:            SettingFor(stop),
+		Aperture:            settingFromProfile(profile),
 		Entities:            chosen,
 		Relations:           rels,
 		EstimatedTokens:     estimated,

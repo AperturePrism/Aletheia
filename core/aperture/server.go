@@ -32,6 +32,40 @@ func (s *Server) Assemble(ctx context.Context, req *alethv1.AssembleRequest) (*a
 	return bundle, nil
 }
 
+// AssembleWithOverrides 装配并应用**连续调节**（M3 §7 DoD）。
+//
+// # 这是进程内 API，不经 gRPC
+//
+// `AssembleRequest` 在 `05 §4.2` 是 **[frozen]** 的，没有可放覆盖参数的
+// 字段。按 `docs/09` R1 未自造 RPC、未改 proto。
+//
+// 因此连续调节只对**进程内调用方**可用 —— 主要是 M5 编排层：
+// 它在下发任务时知道"这个任务需要比 f/4 再深一点但不需要 f/16 的窄"，
+// 而 gRPC 调用方暂时只能走三档。
+//
+// 补法是同一个 `contract:` PR 给 `AssembleRequest` 加三个可选字段。
+// 与 I6 的 `GetGraph`、I0 的 `ListSessions` 缺口一并处理。
+//
+// ★ 注意 `MCP` 的 `assemble_context` 工具也走 gRPC，因此同样只能三档 ——
+// 这是**如实的能力边界**，不做"看起来支持"的假接口。
+func (s *Server) AssembleWithOverrides(
+	ctx context.Context, req *alethv1.AssembleRequest, ov Overrides,
+) (*alethv1.ContextBundle, error) {
+	bundle, err := s.assembler.AssembleWithOverrides(ctx, req, ov)
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return bundle, nil
+}
+
+// ProfileForExposed 暴露档位参数解析（供 M5 在规划时预估曝光）。
+//
+// 存在的理由：编排层需要在不装配的情况下知道"某档位大概会给多少实体"，
+// 以便决定任务的档位。直接读 `profiles` 是包内私有，因此提供本入口。
+func ProfileForExposed(stop alethv1.ApertureSetting_Stop) StopProfile {
+	return ProfileFor(stop)
+}
+
 // Autofocus 自动对焦。
 func (s *Server) Autofocus(ctx context.Context, req *alethv1.AutofocusRequest) (*alethv1.AutofocusResult, error) {
 	res, err := s.assembler.Autofocus(ctx, req)

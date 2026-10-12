@@ -73,6 +73,147 @@ var profiles = map[alethv1.ApertureSetting_Stop]StopProfile{
 // DefaultStop 是未指定档位时的默认值（M3 的常规分析场景）。
 const DefaultStop = alethv1.ApertureSetting_F_4
 
+// ---- 连续调节（M3 §7 DoD："三档光圈 + 连续调节可用"）----
+
+// Overrides 是光圈参数的连续调节层（M3 §4.1 的三个轴）。
+//
+// # 为什么"连续调节"是必要的，而不只是锦上添花
+//
+// 三档之间的跨度很大 —— f/1.4 是 200 实体/1 跳，f/16 是 10 实体/3 跳。
+// 一个任务常常落在两档之间：需要 3 跳但不需要 10 个实体的深度，
+// 或者需要 40 个实体但只需要 1 跳。
+//
+// 若只有三档，调用方只能"向上取档"（浪费预算）或"向下取档"（丢信息）。
+// M3 §4.1 把"恒定曝光"定为**硬约束**（不是优化目标），
+// 而硬约束下的最优解往往不在档位点上 —— 因此需要连续轴。
+//
+// # 语义：覆盖而非替代
+//
+// zero value（全部字段为 0）表示"不覆盖"，沿用档位值。
+// 这与 protobuf 的"未设置 = 默认值"惯例一致，也让"三档"仍是主入口。
+//
+// # 边界：三条轴必须单调
+//
+// 调节**必须保持光圈的物理语义**：开大孔径 = 宽而浅。
+// 因此不允许"max_entities 调到 200 同时 max_hops 调到 3"这类
+// 破坏语义的组合 —— 那会让"恒定曝光"的预算约束失效。
+// `Normalize` 负责校验并拒绝这类组合。
+type Overrides struct {
+	// MaxHops 覆盖图遍历跳数（0 = 不覆盖）。
+	MaxHops uint32
+	// MaxEntities 覆盖实体数上限（0 = 不覆盖）。
+	MaxEntities uint32
+	// DepthPerEntity 覆盖每实体属性深度（0 = 不覆盖）。
+	DepthPerEntity uint32
+}
+
+// IsZero 报告是否未设置任何覆盖。
+func (o Overrides) IsZero() bool {
+	return o.MaxHops == 0 && o.MaxEntities == 0 && o.DepthPerEntity == 0
+}
+
+// Apply 把覆盖应用到档位参数上，并返回结果。
+//
+// 违反物理语义时返回错误（**不静默接受**）—— 见 Overrides 的说明。
+func (o Overrides) Apply(base StopProfile) (StopProfile, error) {
+	if o.IsZero() {
+		return base, nil
+	}
+	out := base
+	if o.MaxHops > 0 {
+		out.MaxHops = o.MaxHops
+	}
+	if o.MaxEntities > 0 {
+		out.MaxEntities = o.MaxEntities
+	}
+	if o.DepthPerEntity > 0 {
+		out.DepthPerEntity = o.DepthPerEntity
+	}
+	if err := validateApertureSemantics(out); err != nil {
+		return base, err
+	}
+	// 标记为"已调节"，让审计能区分"用了档位值"与"连续调节过"。
+	out.Label = fmt.Sprintf("%s~（连续调节）", base.Label)
+	out.Semantics = base.Semantics + "；参数经连续调节"
+	return out, nil
+}
+
+// validateApertureSemantics 校验调节后的参数是否仍满足光圈的物理语义。
+//
+// 判据取自 M3 §4.1 表格的三档数据 —— 它们界定了合法区域的顶点：
+//
+//	宽而浅：max_hops 小 ↔ max_entities 大
+//	窄而深：max_hops 大 ↔ max_entities 小
+//
+// 因此"深且宽"（hops 大 且 entities 大）是非法的：它同时要覆盖广度与
+// 深度，会突破"恒定曝光"的硬预算约束（M3 §4.1 原文：
+// "光圈开大必须别处关小"）。
+//
+// 具体阈值：以档位表的最大乘积为界。最宽的组合是 f/1.4
+// （1×200=200），最常见的组合是 f/4（2×60=120）。这里取
+// `max_hops × max_entities ≤ 200` 作为恒曝光上界 —— 它是表格里
+// 三档的**最大值**，因此不会拒绝任何原有档位。
+func validateApertureSemantics(p StopProfile) error {
+	const exposureLimit = 200 // f/1.4 的 1×200，三档中的最大值
+	if p.MaxHops == 0 || p.MaxEntities == 0 {
+		return fmt.Errorf(
+			"aperture: max_hops and max_entities must be non-zero (got hops=%d entities=%d)",
+			p.MaxHops, p.MaxEntities)
+	}
+	if product := p.MaxHops * p.MaxEntities; product > exposureLimit {
+		return fmt.Errorf(
+			"aperture: max_hops(%d) × max_entities(%d) = %d exceeds the constant-exposure "+
+				"limit %d — widening the aperture must narrow something else (M3 §4.1)",
+			p.MaxHops, p.MaxEntities, product, exposureLimit)
+	}
+	if p.DepthPerEntity == 0 {
+		return fmt.Errorf("aperture: depth_per_entity must be non-zero")
+	}
+	return nil
+}
+
+// Interpolate 在相邻两档之间线性插值（连续调节的便捷入口）。
+//
+// `t` ∈ [0,1]：0 = 取 `from` 档，1 = 取 `to` 档。
+//
+// # 为什么是"相邻两档"而不是任意档位
+//
+// 光圈是从大到小的**有序**序列；在 f/1.4 与 f/16 之间插值会跳过 f/4
+// 的语义。要求相邻可让调用方的意图明确（"比 f/4 再收一点"），
+// 也让插值结果始终落在合法区域内。
+//
+// 非相邻档位返回错误 —— 与"不静默接受非法输入"一致。
+func Interpolate(from, to alethv1.ApertureSetting_Stop, t float64) (Overrides, error) {
+	if t < 0 || t > 1 {
+		return Overrides{}, fmt.Errorf("aperture: interpolation t must be in [0,1], got %v", t)
+	}
+	a, b := ProfileFor(from), ProfileFor(to)
+	// 相邻判定：档位序号相差 1（stopOrder 是内部有序函数）。
+	if d := stopOrder(a.Stop) - stopOrder(b.Stop); d != 1 && d != -1 {
+		return Overrides{}, fmt.Errorf(
+			"aperture: interpolation requires adjacent stops, got %s and %s "+
+				"(interpolating across a stop would skip its semantics)",
+			a.Label, b.Label)
+	}
+	lerp := func(x, y uint32) uint32 {
+		v := float64(x) + (float64(y)-float64(x))*t
+		// **四舍五入而非截断**：截断会让 t<1 的中点在多数情况下等于
+		// `from` 档（如 hops 2→3 时 t=0.5 得 2.5，截断成 2），
+		// 于是"连续调节"在小跨度轴上退化成"只有档位值"。
+		// 四舍五入保证 t≥0.5 时至少走到 y 的方向。
+		out := uint32(v + 0.5)
+		if out < 1 {
+			return 1 // 不允许归零（归零即"无上下文"，会被校验拒绝）
+		}
+		return out
+	}
+	return Overrides{
+		MaxHops:        lerp(a.MaxHops, b.MaxHops),
+		MaxEntities:    lerp(a.MaxEntities, b.MaxEntities),
+		DepthPerEntity: lerp(a.DepthPerEntity, b.DepthPerEntity),
+	}, nil
+}
+
 // ProfileFor 返回档位参数。未指定档位时返回默认档。
 func ProfileFor(stop alethv1.ApertureSetting_Stop) StopProfile {
 	if p, ok := profiles[stop]; ok {
@@ -83,7 +224,16 @@ func ProfileFor(stop alethv1.ApertureSetting_Stop) StopProfile {
 
 // SettingFor 构造契约的 ApertureSetting。
 func SettingFor(stop alethv1.ApertureSetting_Stop) *alethv1.ApertureSetting {
-	p := ProfileFor(stop)
+	return settingFromProfile(ProfileFor(stop))
+}
+
+// settingFromProfile 把**已解析的**档位参数转成契约消息。
+//
+// 与 `SettingFor` 的区别：后者总是从档位名重新解析档案，因此**无法表达
+// 连续调节后的参数**。装配路径必须用本函数 —— 否则
+// `bundle.aperture` 会记成档位原值，而实际装配用的是调节后的值，
+// 审计信息就是错的（"审计说 A、实际做 B"）。
+func settingFromProfile(p StopProfile) *alethv1.ApertureSetting {
 	return &alethv1.ApertureSetting{
 		Stop:           p.Stop,
 		MaxHops:        p.MaxHops,
