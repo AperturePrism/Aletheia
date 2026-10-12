@@ -9,6 +9,53 @@
 
 ## [Unreleased]
 
+### OTel 接线 + 稳定性实测通过（Q8 首次给出 PASS）（2026-10-12）
+
+**Added**
+- **OTel 接线**（`cmd/alethd/obs.go`）：`core/obs`（M6 T6.2）自 I0 起
+  就实现了 span 属性键、context 传播与闸门结果记录，但
+  **`grep -rn 'core/obs' cmd/ core/` 返回空** —— 6.3KB 死代码、0% 覆盖。
+  后果不是"少个功能"，而是 `M6` §8.2 承诺的三条可追溯链路
+  （agent 为什么这么做 / 这个结论的证据是什么 / 这行数据从哪来）
+  **只是声明** —— 三条链路的载体（span）从未被创建。
+  - `installTracing` 默认装 **noop provider**（零遥测，D18）；
+    ★ **未开启导出时 span 仍被创建与传递** —— 这让"接线正确"与
+    "是否导出"解耦，否则"默认零遥测"这个最需要验证的形态反而无法验证。
+  - `obsUnaryInterceptor` / `obsStreamInterceptor` 按**层归属**
+    （而非方法名前缀）映射 `SpanKind`。
+  - `traceStatusFor` 区分"预期内的拒绝"与"真故障"：
+    `APERTURE_OVER_BUDGET` / `PermissionDenied` / `FailedPrecondition`
+    是 `M3` §2.2 N4 与 `07` §8.2 认可的**正确拒绝**，标 Error 会让 trace
+    充满噪声、掩盖真实故障 —— 但仍记录错误事件（"被拒绝了"要可追溯）。
+- **`core/obs/obs_test.go`**：13 用例，覆盖率 **0% → 100%**。
+  用 OTel 官方 `tracetest.SpanRecorder` 断言 span 真的产生
+  （断言"符合 OTel 规范的 span"而非"符合我实现的 span"）；
+  `TestAttributeKeysAreStable` 锁死属性键取值（它是**对外契约**，
+  改名会让已导出的 trace 与看板失联）。
+
+**Verified（Q8 的首次实测结论）**
+- **稳定性测试按规格口径实测 PASS**：
+
+```
+{"result": "PASS", "duration_s": 1015, "warmup_s": 600, "samples": 45,
+ "crashes": 0, "probe_failures": 0,
+ "fp_rss_growth_pct": -0.4, "ad_rss_growth_pct": 2.77}
+```
+
+  方法：先跑 `warmup=60s` 得 8.04%（超阈值），再按 `M6` §12 的规格口径
+  跑 `warmup=600s` 得 **2.77%（通过）**。
+  **结论：此前的 8.04% 是 Go runtime 的启动堆扩张，不是泄漏** ——
+  规格里的预热窗口正是为此而设（原文："Go 的 GC 只在堆增长约 100% 时
+  触发，回收后默认不立即把内存归还 OS"）。
+
+  这同时验证了该判据的**口径设计是必要的**：若无预热窗口，
+  任何长时 Go 服务都会恒被判为泄漏（假阳性）。
+
+**Fixed**
+- `go.mod` 补齐 OTel 的四项说明（许可证 / 维护活跃度此前缺失），
+  并写入**版本约束**：`go get` 默认拉 v1.47.0，它要求 **go >= 1.26**，
+  会顶掉 CI 的 `GO_VERSION=1.24` —— 必须锁 v1.29.0。
+
 ### 修复稳定性 harness 的两个缺陷（此前从未跑通）（2026-10-12）
 
 > `tests/stability/run.sh`（P0 门禁第 1 条 / Q8 的执行入口）在 I0 之后
