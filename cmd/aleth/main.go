@@ -57,6 +57,8 @@ func rootCmd() *cobra.Command {
 		daemonCmd(),
 		statusCmd(),
 		versionCmd(),
+		// I11（04 §4 前端交付物）：MCP 接口（06 §3.4）。
+		mcpCmd(),
 	)
 	return cmd
 }

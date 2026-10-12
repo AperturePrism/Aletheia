@@ -96,14 +96,57 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require modernc.org/sqlite v1.34.5
+// ============================================================================
+// 功能依赖（按 docs/09 §5 #3 的四项说明：用途 / 许可证 / 维护活跃度 / 替代方案）
+// ============================================================================
+//
+// 说明：`go mod tidy` 会把下面这些移到上面的 require 块并丢掉注释。
+// 新增依赖后请重新补回四项说明，并更新本注释块。
+//
+// github.com/improbable-eng/grpc-web v0.15.0
+//   用途：浏览器 gRPC-Web 桥接（I4 修复 —— WebUI 主界面的 RPC 通道）。
+//         web/src/lib/api.ts 的 GRPC_ENDPOINT 经此桥接访问后端。
+//   许可证：Apache-2.0。
+//   维护活跃度：中等（原 improbable-eng 项目已归档，但 API 稳定、
+//         广泛使用；本项目只用到 WrapServer 这一稳定入口）。
+//   替代方案：connect-go（能力等价但需重写前端 transport，且引入第二套
+//         RPC 风格，与"契约同源"目标无益，不采纳）。
+//
+// github.com/modelcontextprotocol/go-sdk v1.0.0
+//   用途：MCP server（06 §3.4 的"作为提供者"）—— 把 Aletheia 的能力
+//         暴露给 Claude Desktop / Cursor 等外部 agent。
+//   许可证：MIT（Model Context Protocol 官方 Go SDK，Google 与
+//         Anthropic 共同推动，Linux 基金会旗下）。
+//   维护活跃度：高（官方 SDK，随 MCP 规范演进；v1.x 已稳定）。
+//   替代方案：手写 JSON-RPC over stdio（不采纳 —— MCP 的握手、
+//         能力协商与工具 Schema 生成都是规范细节，手写等于重实现
+//         一个协议栈，且必然与客户端实现漂移）。
+//   ★ 版本约束：v1.0.0 是最后一个 `go 1.23` 的版本；v1.1+ 要求
+//     go >= 1.25，会顶掉本项目 CI 的 GO_VERSION=1.24。
+//     升级该依赖时务必检查 `go` 指令是否仍为 1.24。
+//
+// modernc.org/sqlite v1.34.5
+//   用途：M2 心智地图的单一属性图存储（I4）。
+//   许可证：BSD-3-Clause。
+//   维护活跃度：高（modernc.org 系列的纯 Go SQLite 移植，持续跟随
+//         上游 SQLite 版本）。
+//   替代方案：mattn/go-sqlite3（需 cgo，与"无 C 工具链也能全量构建"
+//         这一既有事实冲突，不采纳）。
+//   ★ 版本约束：与上面同源 —— v1.35+ 会把 `go` 指令顶到 1.26。
+//     升级时同样需要检查。
+require (
+	github.com/improbable-eng/grpc-web v0.15.0
+	github.com/modelcontextprotocol/go-sdk v1.0.0
+	modernc.org/sqlite v1.34.5
+)
 
 require (
 	github.com/cenkalti/backoff/v4 v4.1.1 // indirect
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
-	github.com/improbable-eng/grpc-web v0.15.0 // indirect
+	github.com/google/jsonschema-go v0.3.0 // indirect
 	github.com/klauspost/compress v1.11.7 // indirect
 	github.com/rs/cors v1.7.0 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	nhooyr.io/websocket v1.8.6 // indirect
 )
 
@@ -115,8 +158,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/exp v0.0.0-20230315142452-642cacee5cc0 // indirect
-	golang.org/x/mod v0.22.0
-	golang.org/x/sync v0.10.0
+	golang.org/x/mod v0.22.0 // indirect
 	modernc.org/libc v1.61.13 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.8.2 // indirect
