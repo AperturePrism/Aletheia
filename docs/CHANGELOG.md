@@ -9,6 +9,65 @@
 
 ## [Unreleased]
 
+### daemon 生命周期修复 + `restart` 补齐（CLI 覆盖率 44% → 53%）（2026-10-12）
+
+> 把"真跑一遍命令树"的方法用到 daemon 生命周期上
+> （start → status → restart → stop），又找到四个真实缺陷。
+
+**Added**
+- **`aleth daemon restart`**（`06` §3.2 职责①原文含"重启"，此前缺失）。
+  它不是 stop+start 的语法糖：必须**确认旧进程真的退出**再启动，
+  否则新进程撞上端口占用，错误信息会误导用户去查端口冲突。
+  **一个刻意的顺序**：凭证校验在**停止现有 daemon 之前** ——
+  顺序反了会把"拒绝启动"变成"服务中断"（有专门测试锁死）。
+- **`StatusOutput.daemon_pid`** —— CI 排查"端口被占"时需要它。
+
+**Fixed**
+- **`daemon stop` 在 Windows 必然失败**：`proc.Signal(os.Interrupt)`
+  在 Windows 上返回 `not supported by windows`（`os.Process.Signal`
+  只支持 `os.Kill`）。**更糟的是失败路径仍删除了 pid 文件** ——
+  daemon 继续运行、pid 文件却没了，用户再无 CLI 手段停它。
+  那把"停止失败"（可恢复）变成了"进程失控"（不可发现）。
+  - 修法：平台特定实现（`daemon_windows.go` / `daemon_unix.go`）。
+    Unix 用 SIGTERM（服务终止的标准信号）；Windows 用 `TerminateProcess`
+    并**等待确认退出**。
+  - 确立语义：**只有确认进程已退出才删 pid 文件** —— 两个方向的代价
+    不对称（留早了的代价是"下次 start 覆盖它"，删早了的代价是
+    "失去可发现性"）。
+  - Windows 用强杀不是妥协：daemon 的持久状态每次写操作即落盘
+    （append-only + WAL），且 Q8 本来就用意外终止验证"崩溃后数据仍一致"。
+- **`status` 无条件报 `daemon_running: false`**：daemon 在跑也报 false，
+  直接破坏 `06` §3.2 的「④ CI 集成」—— CI 脚本靠该字段决定
+  "要不要先启动 daemon"，恒 false 会让脚本每次尝试启动 → 端口冲突
+  → **误判为环境故障**。修为 pid 文件 + 进程存活**双查**。
+- **pid 解析是前缀匹配**（由新测试抓到）：`fmt.Sscanf("12x34", "%d")`
+  **成功**且得到 `12` —— 损坏的 pid 文件会让 CLI 去操作一个**无关进程**
+  （stop 路径上等于杀别人的进程）。修为 `strconv.Atoi`。
+
+**Tests**
+- `cmd/aleth/daemon_test.go` —— 12 个新用例，覆盖率 **43.9% → 53.0%**。
+
+**★ 一次未通过的变异验证（方法记录）**
+- 最初只用"不存在的 pid"测 `stopProcess`，走的是 `FindProcess` 失败路径，
+  **从不执行真正的终止调用** —— 把 Windows 实现改回缺陷版本时**测试全绿**。
+  那是"用绿灯替换有效性"：测试在，但覆盖不到该路径。
+- 补上 `TestStopProcessActuallyTerminatesAProcess`（启动真实长驻子进程
+  并终止它）后重跑变异 —— 这次被抓（2 用例失败）。
+
+**实测（完整生命周期）**
+
+```
+$ aleth daemon start --authorization dev_roe.yaml --config dev_cfg.yaml
+alethd started (pid 53520), listening on 127.0.0.1:7723
+$ aleth status --format json
+{"daemon_running": true, "daemon_pid": 53520, "listen_addr": "127.0.0.1:7723"}
+$ aleth daemon restart --authorization dev_roe.yaml --config dev_cfg.yaml
+stopped old daemon (pid 53520)
+alethd started (pid 34748), listening on 127.0.0.1:7723
+$ aleth daemon stop
+alethd (pid 34748) stopped
+```
+
 ### CLI 控制平面修复 + `aleth export` 补齐（覆盖率 0% → 44%）（2026-10-12）
 
 > `cmd/aleth` 覆盖率 **0%** —— 16KB 用户面向的控制面代码，一个测试都没有。
