@@ -18,6 +18,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -126,27 +128,37 @@ func runDaemonStart(cmd *cobra.Command, authPath string) error {
 	return nil
 }
 
-func runDaemonStop(_ *cobra.Command, _ []string) error {
+func runDaemonStop(cmd *cobra.Command, _ []string) error {
 	data, err := os.ReadFile(daemonPIDFile())
 	if err != nil {
 		return fmt.Errorf("daemon 未在运行（pid 文件不存在: %s）", daemonPIDFile())
 	}
-	var pid int
-	if _, err := fmt.Sscanf(string(data), "%d", &pid); err != nil {
-		return fmt.Errorf("pid 文件损坏: %w", err)
+	// 与 readDaemonPID 同一严格口径（Atoi 而非 Sscanf）——
+	// 见该函数的说明：`%d` 是前缀匹配，会把 "12x34" 读成 12，
+	// 从而去操作一个无关的进程。
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return fmt.Errorf("pid 文件损坏（内容不是合法 pid）: %s", daemonPIDFile())
 	}
 
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("找不到进程 %d: %w", pid, err)
-	}
-	if err := proc.Signal(os.Interrupt); err != nil {
-		// SendSignal 失败通常意味着进程已退出 —— 清理 pid 文件后视为成功。
-		_ = os.Remove(daemonPIDFile())
-		return fmt.Errorf("发送停止信号失败（进程可能已退出）: %w", err)
+	// ★ 平台差异由 stopProcess 封装（daemon_unix.go / daemon_windows.go）。
+	//
+	// 此前这里直接 `proc.Signal(os.Interrupt)`，在 Windows 上**必然失败**
+	// （`not supported by windows`），且失败路径仍删除了 pid 文件 ——
+	// 于是 daemon 继续运行、pid 文件却没了，用户再无 CLI 手段停它。
+	// 那把"停止失败"（可恢复）变成了"进程失控"（不可发现）。
+	//
+	// 现在的语义：**只有确认进程已退出，才删 pid 文件**。
+	// 删不掉 pid 文件不影响正确性（下次 start 会覆盖它），
+	// 但删早了会让运行中的 daemon 失去可发现性 —— 两者不对称。
+	if err := stopProcess(pid); err != nil {
+		return fmt.Errorf(
+			"%w\n  pid 文件保留在 %s —— 未确认进程已退出时不删除它，\n"+
+				"  以免运行中的 daemon 失去可发现性。确认进程状态后可手动删除。",
+			err, daemonPIDFile())
 	}
 	_ = os.Remove(daemonPIDFile())
-	fmt.Printf("alethd (pid %d) stop signal sent\n", pid)
+	fmt.Fprintf(cmd.OutOrStdout(), "alethd (pid %d) stopped\n", pid)
 	return nil
 }
 
@@ -154,11 +166,16 @@ func runDaemonStop(_ *cobra.Command, _ []string) error {
 //
 // 字段命名与 05 的 ID 约定保持一致，便于脚本直接与 API 返回值对齐。
 type StatusOutput struct {
-	DaemonRunning bool   `json:"daemon_running"`
-	ListenAddr    string `json:"listen_addr"`
-	Version       string `json:"version"`
-	SessionID     string `json:"session_id,omitempty"`
-	TaskStatus    string `json:"task_status,omitempty"`
+	DaemonRunning bool `json:"daemon_running"`
+	// PID daemon 进程号（未运行时省略）。
+	//
+	// 存在理由：CI 排查"为什么端口被占"时，光知道 daemon_running=true
+	// 不够，还需要 pid 去查是哪个进程。
+	PID        int    `json:"daemon_pid,omitempty"`
+	ListenAddr string `json:"listen_addr"`
+	Version    string `json:"version"`
+	SessionID  string `json:"session_id,omitempty"`
+	TaskStatus string `json:"task_status,omitempty"`
 
 	// Budget 与 05 §6.3 BudgetState 对齐。
 	BudgetTotal    uint32  `json:"budget_total_tokens,omitempty"`
@@ -174,11 +191,25 @@ func runStatus(cmd *cobra.Command, format string) error {
 		Version:       version,
 	}
 
-	// 如实报告 daemon 未连接，而不是假装查到了空状态：
-	// 假成功会让 05 §0 C2「失败必须显式」失效。
+	// ★ 用 **pid 文件 + 进程存活探测** 判断 daemon 是否在运行。
 	//
-	// 待办：接 gRPC 客户端后改为真实探测（当前只报 CLI 侧可确定的事实）。
-	out.DaemonRunning = false
+	// 此前这里**无条件**写 `false`，于是 daemon 明明在跑，
+	// `aleth status --format json` 也报 `daemon_running: false`。
+	//
+	// 这对 `06` §3.2 的「④ CI 集成」是直接的破坏：CI 脚本靠这个字段
+	// 决定"要不要先启动 daemon"，而它恒为 false 会让脚本每次
+	// 都尝试启动 → 端口冲突 → 误判为环境故障。
+	//
+	// 判据链：pid 文件存在 → 该 pid 的进程仍在 → daemon 在运行。
+	// 两步都要查：pid 文件可能残留（daemon 被强杀时来不及清理），
+	// 因此**不能只信文件**。
+	//
+	// 仍未接线的是"查询 daemon 内部状态"（会话/成本/进度）——
+	// 那需要 gRPC 客户端；本字段只回答"进程在不在"。
+	if pid, ok := readDaemonPID(); ok && processAlive(pid) {
+		out.DaemonRunning = true
+		out.PID = pid
+	}
 
 	// ★ 写 cobra 的 writer（`cmd.OutOrStdout()`）而不是 `os.Stdout`。
 	//
@@ -192,6 +223,28 @@ func runStatus(cmd *cobra.Command, format string) error {
 	return writeStatus(cmd.OutOrStdout(), format, out)
 }
 
+// readDaemonPID 读取 pid 文件。第二返回值表示是否可读且格式合法。
+//
+// 与 `runDaemonStop` 的读取逻辑共用同一格式约定。
+//
+// ★ 用 `strconv.Atoi` 而不是 `fmt.Sscanf("%d")`：
+// Sscanf 的 `%d` 是**前缀匹配**，`"12x34"` 会被解析成 `12` 并返回成功。
+// 那意味着一个损坏的 pid 文件会让 CLI 去操作一个**无关的进程** ——
+// 在 stop 路径上这是灾难性的（杀掉别人的进程）。
+// Atoi 要求整串都是数字，因此 `12x34` 被如实拒绝。
+// （由 TestReadDaemonPIDRejectsGarbage 抓到。）
+func readDaemonPID() (int, bool) {
+	data, err := os.ReadFile(daemonPIDFile())
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
+}
+
 // writeStatus 渲染状态输出（抽出来是为了可独立测试两种格式）。
 func writeStatus(w io.Writer, format string, out StatusOutput) error {
 	if format == "json" {
@@ -202,9 +255,24 @@ func writeStatus(w io.Writer, format string, out StatusOutput) error {
 	if _, err := fmt.Fprintf(w, "aleth %s\n", version); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "daemon: not connected (CLI gRPC client not wired yet)\n"); err != nil {
+	if out.DaemonRunning {
+		if _, err := fmt.Fprintf(w,
+			"daemon: running (pid %d)\n", out.PID); err != nil {
+			return err
+		}
+	} else {
+		// 未运行时说清"怎么启动"，而不是只报一个 false。
+		if _, err := fmt.Fprintf(w,
+			"daemon: not running (pid file absent or stale)\n"); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(w, "endpoint: %s\n", out.ListenAddr); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(w, "expected endpoint: %s\n", out.ListenAddr)
+	// 会话/成本/进度需要 daemon 内部的 gRPC 查询 —— 如实说明未接线，
+	// 而不是留白让用户以为"没有数据"等同于"没有会话"。
+	_, err := fmt.Fprintf(w,
+		"session/budget: unavailable (CLI gRPC client not wired yet)\n")
 	return err
 }

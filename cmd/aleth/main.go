@@ -102,8 +102,56 @@ alethd 承载全部业务逻辑；本命令只负责它的生命周期。
 		RunE:         runDaemonStop,
 	}
 
-	cmd.AddCommand(start, stop)
+	// 职责①（06 §3.2：「启动/停止/**重启** daemon」）——
+	// restart 此前缺失。它不是简单的 stop+start 语法糖：
+	// 必须**确认旧进程真的退出**再启动新的，否则新进程会撞上端口占用，
+	// 而用户看到的是"重启失败"而非"旧进程没停下来"。
+	restart := &cobra.Command{
+		Use:   "restart",
+		Short: "重启守护进程",
+		Long: `重启守护进程（先停再起）。
+
+与 "stop && start" 的区别：本命令会**等待旧进程真正退出**后再启动新的。
+否则新进程会因端口被占用而启动失败 —— 那种错误信息会误导用户去查
+端口冲突，而真实原因是旧进程还没停干净。`,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			auth, _ := cmd.Flags().GetString("authorization")
+			return runDaemonRestart(cmd, auth)
+		},
+	}
+	restart.Flags().String("authorization", "",
+		"授权凭证文件路径（roe.yaml）。必填 —— 重启同样是启动。")
+	restart.Flags().Bool("foreground", false, "前台运行（默认后台守护）")
+
+	cmd.AddCommand(start, stop, restart)
 	return cmd
+}
+
+// runDaemonRestart 停掉现有 daemon（若有）后重新启动。
+func runDaemonRestart(cmd *cobra.Command, authPath string) error {
+	// 08 §1.1：无凭证不启动 —— 重启也是启动，因此同一校验。
+	// **先校验再停止**：若凭证缺失就拒绝，不能先把正在工作的
+	// daemon 停掉再报错（那会把"拒绝启动"变成"服务被中断"）。
+	if authPath == "" {
+		return fmt.Errorf("Authorization Anchor: 拒绝重启 —— 未提供授权凭证\n" +
+			"  依据 docs/08 §1.1：无凭证不启动。\n" +
+			"  注意：本命令**在停止现有 daemon 之前**就校验凭证，\n" +
+			"  以免把一个运行中的服务停掉之后才报错。\n" +
+			"  用法：aleth daemon restart --authorization roe.yaml")
+	}
+
+	// 只有确认在运行才停 —— 没在运行时 restart 等价于 start。
+	if pid, ok := readDaemonPID(); ok && processAlive(pid) {
+		if err := stopProcess(pid); err != nil {
+			// 停不掉就**不启动**：两个实例同时跑会争用同一份
+			// SQLite 与端口，后果比"重启失败"严重得多。
+			return fmt.Errorf("重启中止：无法停止现有 daemon（pid %d）：%w", pid, err)
+		}
+		_ = os.Remove(daemonPIDFile())
+		fmt.Fprintf(cmd.OutOrStdout(), "stopped old daemon (pid %d)\n", pid)
+	}
+	return runDaemonStart(cmd, authPath)
 }
 
 func statusCmd() *cobra.Command {
