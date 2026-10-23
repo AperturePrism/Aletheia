@@ -169,12 +169,23 @@ func runExport(cmd *cobra.Command, _ []string) error {
 
 	// 写盘。文件名带会话与时间戳，避免多次导出互相覆盖 ——
 	// 审计产物被静默覆盖是证据链断裂的一种。
-	// ★ 时间戳精确到**毫秒**：此前只到秒，同一秒内的两次导出会
-	// 覆盖彼此（由 TestExportFilenameIsTimestampedAndScoped 抓到）。
-	// 秒级粒度对"CI 里连续导出多个会话"是真实场景，不是假想。
-	stamp := time.Now().UTC().Format("20060102T150405.000Z")
+	// ★ 时间戳精确到**纳秒**：毫秒粒度在 CI 的快速机器上仍会碰撞
+	//（两次连续导出 < 1ms → 同名覆盖，TestExportFilenameIsTimestampedAndScoped
+	// 在 ubuntu runner 上抓到的真实失败；本机 Windows 较慢无法复现）。
+	// 纳秒粒度 + 同名兜底双保险（见下方 exists 循环）。
+	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
 	name := fmt.Sprintf("evidence-bundle_%s_%s.json", sanitizeForFilename(session), stamp)
 	path := filepath.Join(outDir, name)
+
+	// 同名兜底：即便纳秒粒度仍被外部因素对齐（如时钟回拨），
+	// 追加序号而不是覆盖 —— 审计产物永不静默覆盖。
+	for seq := 2; ; seq++ {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			break
+		}
+		path = filepath.Join(outDir,
+			fmt.Sprintf("evidence-bundle_%s_%s-%d.json", sanitizeForFilename(session), stamp, seq))
+	}
 
 	// 用缩进 JSON：审计产物是给人读的，紧凑格式会让 diff 失去意义。
 	blob, err := json.MarshalIndent(bundle, "", "  ")

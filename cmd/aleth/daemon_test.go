@@ -312,6 +312,11 @@ func TestStopProcessActuallyTerminatesAProcess(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("无法启动辅助进程: %v", err)
 	}
+	// 异步回收：Unix 上未 Wait 的子进程退出后成为僵尸，而
+	// processAlive 的 kill(pid,0) 对僵尸返回成功 —— 不回收的话
+	// stopProcess 的"确认退出"轮询在 Linux 上必然 10s 超时
+	//（CI 上抓到的真实失败；Windows 无僵尸语义，本地无法复现）。
+	go func() { _ = cmd.Wait() }()
 	pid := cmd.Process.Pid
 
 	// 确认它确实活着（否则后面的断言会因"本来就死了"而假通过）。
@@ -321,20 +326,14 @@ func TestStopProcessActuallyTerminatesAProcess(t *testing.T) {
 	}
 
 	if err := stopProcess(pid); err != nil {
-		// 即便失败也要回收，避免泄漏子进程。
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
 		t.Fatalf("stopProcess 应能终止一个真实进程: %v", err)
 	}
 
 	// 终止后必须**确认**已死 —— 这正是 stopProcess 的契约
 	//（"只有确认进程已退出，才删 pid 文件"）。
 	if processAlive(pid) {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
 		t.Fatal("stopProcess 返回后进程必须已退出")
 	}
-	_ = cmd.Wait() // 回收僵尸
 }
 
 func TestStopProcessWaitsForExit(t *testing.T) {
@@ -344,18 +343,14 @@ func TestStopProcessWaitsForExit(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	go func() { _ = cmd.Wait() }() // 异步回收僵尸（同上）
 	pid := cmd.Process.Pid
 	if err := stopProcess(pid); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
 		t.Fatal(err)
 	}
 	if processAlive(pid) {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
 		t.Fatal("stopProcess 返回时进程仍在运行 —— 它必须等到确认退出")
 	}
-	_ = cmd.Wait()
 }
 
 // execCommandHelper 启动一个**真实长驻**的辅助进程。
