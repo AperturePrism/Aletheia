@@ -79,12 +79,16 @@ def _load(path: Path) -> dict:
 #: 值为 `None` 表示"该文件不得声明 permissions"（暂无此类文件）。
 ALLOWED_WORKFLOW_PERMISSIONS: dict[str, dict[str, str]] = {
     "ci.yml": {"contents": "read"},
-    # release.yml 需要两项，各有明确理由：
+    # release.yml 需要三项，各有明确理由：
     #   · contents: write —— 创建 Release 与上传资产
     #   · id-token: write —— SLSA provenance 用 OIDC 向 Sigstore 换短期证书
     #     （docs/07 §T6「构建产物签名」）。它**不**授予仓库写权限，
     #     但可换取云凭据，因此仍需登记与审阅。
-    "release.yml": {"contents": "write", "id-token": "write"},
+    #   · attestations: write —— attest-build-provenance 把 attestation
+    #     写入 GitHub 的 attestation 存储（v0.6.0 首跑失败的修复：
+    #     只有 id-token 时 persist 阶段报 Resource not accessible）。
+    #     同样不授予仓库写权限，但写入不可变的构建元数据，需登记。
+    "release.yml": {"contents": "write", "id-token": "write", "attestations": "write"},
 }
 
 #: 绝不接受的权限（无论哪个 workflow）。
