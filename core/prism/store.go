@@ -128,6 +128,15 @@ func Open(opts Options) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// main 分支隐式存在（M2 §4.5：所有假设分支的父分支）——
+	// 无此行则 requireBranch 对 main 报 not found（branch 表空）。
+	if _, err := db.Exec(
+		`INSERT OR IGNORE INTO branch (branch_id, branch_name, parent_branch_id, rationale, created_at, status)
+		 VALUES (?, 'main', '', 'implicit main branch (M2 §4.5)', ?, 'open')`,
+		MainBranchID, time.Now().UnixNano()); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("prism: seed main branch: %w", err)
+	}
 	return s, nil
 }
 
