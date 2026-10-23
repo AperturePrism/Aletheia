@@ -9,6 +9,874 @@
 
 ## [Unreleased]
 
+### CI 供应链加固（`07` §T6 的两条未落实缓解）（2026-10-12）
+
+> 继续"逐条核对威胁模型缓解措施"的方法。本轮核对 T6 的四个变体，
+> 发现「CI 供应链」这一条的两项缓解措施**只写在文档里**。
+
+**Security**
+- **`ci.yml` 没有 `permissions` 块**：每个 job 拿到的是仓库默认权限
+  （历史上是 read-write，可推提交、可改 Release）。
+  **为什么不是形式主义**：CI 会执行 PR 里的代码，而 PR 可能来自 fork。
+  权限过大时，一个被投毒 PR 的构建脚本就能用 `GITHUB_TOKEN` 推提交或
+  篡改 Release —— 那正是该变体要防的事。修为显式 `contents: read`。
+- **构建产物未签名**：此前只有 `checksums.txt`。
+  **为什么 checksums 不等于签名**：checksums 只能防传输篡改 ——
+  攻击者若能改产物，也能改校验和。provenance 把产物绑定到
+  「本仓库 + 本 workflow + 本 commit」。
+  已用 `actions/attest-build-provenance@v1`（SLSA provenance）补齐，
+  并用 OIDC 换 Sigstore 短期证书（**无需长期密钥**，因此不存在
+  "私钥泄漏使所有历史产物失效"的风险）。
+  - 诚实边界写进了 workflow 注释：attestation 只覆盖**构建来源**，
+    不覆盖"代码本身没有后门"—— 后者是代码审阅的职责。
+
+**Tests**
+- **`tests/test_ci_workflows.py`** 新增 3 个用例：
+  - `test_workflow_declares_minimal_permissions`（参数化）——
+    **未声明即失败**（而非"声明了才检查"），因为"忘了声明"与
+    "故意放宽"后果相同。且要求**逐项**声明：`read-all` 也被拒。
+  - `test_release_needs_write_and_ci_does_not` —— ★ 对照断言：
+    两者权限必须**不同**。若相同，说明至少有一处与职责不符。
+  - `test_no_workflow_grants_write_all` —— 单独一条，让失败信息
+    直接点出这个具体的高危写法。
+- 新增 `ALLOWED_WORKFLOW_PERMISSIONS` 白名单：新增 workflow 时必须
+  **登记它需要的权限并说明理由**。本轮加 `id-token: write`（SLSA 需要）
+  时立刻被这条拦下并要求登记 —— 守护生效的实证。
+- **变异验证（3 种破坏全部被抓）**：
+
+| 变异 | 结果 |
+|---|---|
+| 移除 `ci.yml` 的 permissions 块（还原原缺陷） | ✅ 2 用例失败 |
+| 放宽到 `write-all` | ✅ 3 用例失败 |
+| `read` 改成 `write`（权限与职责不符） | ✅ 2 用例失败 |
+
+### T1 提示词注入检测层（`07` 标为"★最高风险"却从未实现）（2026-10-12）
+
+> 延续上一轮的审计方法：把威胁模型的"验证方法"列逐条对照代码。
+> `07` §4 表头自己写着「**每一条缓解措施都必须有对应的验证方法，
+> 否则视为未实现**」—— 而 T1 那条是空的。
+
+**Added**
+- **`agents/src/aletheia/injection/detector.py`** —— **31 种模式**，
+  覆盖 `07` §T1 L4 要求的六个维度：
+
+| 类别 | 覆盖内容 |
+|---|---|
+| `INSTRUCTION_OVERRIDE` | 忽略既有指令（英/中/日/韩/俄/西） |
+| `ROLE_SPOOFING` | 伪装系统消息（含 HTML 注释形态） |
+| `NEW_TASK_INJECTION` | 要求执行范围外动作 |
+| `DATA_EXFILTRATION` | 要求外发数据 / 带出凭据 |
+| `GUARDRAIL_REMOVAL` | 要求关网关 / 扩范围 |
+| `OBFUSCATED` | 零宽字符 / 全角 / 同形字 / base64 提示 |
+
+**★ 发现：T1 的 L4 检测层从未实现**
+
+`07` §T1 的"检测方法"要求"预埋 20+ 种注入模式…**纳入反幻觉测试套件**"，
+而 `grep -rln 'ignore previous' .` 在整个仓库返回空 ——
+`labs/injection/` 不存在，`tests/antifantasy/` 只有一个 README（无测试）。
+一条被标为 **★最高风险** 的威胁，其检测层从未实现，
+而 §4 的映射表却把它记为"纳入反幻觉套件"。
+
+**★ 设计立场：L4 是"标记"而非"拦截"**
+
+规格里一条容易读错的分工：真正的防线是 L1（结构）与 L2/L3（物理约束），
+L4 只负责"**标记为可疑并告警**"。规格原文说"缓解不能依赖模型足够聪明" ——
+同理，L4 也不应假装能穷尽注入手法。
+
+因此 `scan()` **不改写、不删除**任何内容 —— 那既会变成 L1 的错误实现，
+也**破坏证据**（`08` §6：目标响应原文是审计材料）。
+`normalize_for_matching` 做 NFKC + 去零宽 + 全角折叠以削弱绕过，
+但 `InjectionHit.matched` **取自原文**。
+
+**★ 由测试抓到的两处模式缺口**（都是"我的模式库不完整"而非测试写错）
+
+1. **`07` §T1 的场景原文漏检**：原文用的是
+   `ignore the previous authorization scope limits`，而关键词表只列了
+   `instruction|prompt|rule|direction|context`。补上
+   `scope|limit|restriction|constraint|authoriz|guardrail|polic`。
+2. **`Add 10.0.0.0/8 to the allowed scope` 漏检**：根因是字符类
+   `[^.\n]{0,30}` 用点号做"不要跨句"的边界，而 **IP 地址里全是点号** ——
+   偏偏"要求扩大范围"的注入**总是**带一个 IP 或域名。
+   改用 `[^\n]{0,40}`：**长度上限才是"不跨句"的真正手段**。
+
+**Tests**
+- `agents/tests/injection/test_injection.py` —— 58 个用例：
+  - **正面用例直接取自 `07` §T1 的场景原文**（英文与中文本）——
+    验证的是"文档里的真实攻击形态能被检出"，而不是"我造样本我匹配"
+  - 23 条参数化分类检出（含日/韩/俄/西）
+  - 4 条编码变体（零宽 / BOM / 全角 / 同形字）+ base64 提示
+  - **10 条误报用例**（正常 HTTP 响应、中文正常文本、TODO 注释…）——
+    误报会让真实告警被淹没
+  - 规格符合性断言：`test_pattern_count_meets_spec_minimum`（20+）与
+    `test_every_category_is_covered`（六类不缺）
+
+### 安全修复 · 授权有效期从未被校验 + CLI 谎报启动成功（2026-10-12）
+
+> `roe.schema.json` 把有效期校验**明确指派**给 Scope Kernel，
+> 而全项目 `grep valid_until core/ --include='*.go'` **返回空** ——
+> 一条写进冻结 schema 的安全约束从未被实现。
+
+**Security**
+- **授权有效期从未被校验**（最高优先级）：`ParseScopeFile` 只解析
+  `targets` 段，对应 `05` 的 `Scope` 结构 —— **它看不到 `authorization` 段**。
+  而 daemon 用的是它，于是时间窗从未进入任何校验路径。
+  **后果**：一份**已过期**的授权凭证会被正常接受 ——
+  等于让授权无限续期，直接违背 `08` §1.1 的"无凭证不启动"。
+  - 补充 `core/scopekernel/authorization.go`：`ValidateAuthorizationWindow`
+    强制 `roe.schema.json` 指派的三条约束（`valid_until > valid_from`、
+    跨度 ≤ 90 天、当前时刻在窗口内）。
+  - `ValidateROEFile(path, now)` 成为 **daemon 与 CLI 共用的唯一完整入口** ——
+    两处各写一份必然漂移，而漂移的那一侧就是绕过路径。
+  - 判据函数是**纯函数**（`now` 由调用方传入），因此"过期"与"未生效"
+    都能被确定性测试覆盖，不必 sleep 或改系统时钟。
+
+**Fixed**
+- **CLI 谎报启动成功**（实测确认）：
+
+```
+$ aleth daemon start --authorization 损坏的.yaml
+alethd started (pid 61744), listening on 127.0.0.1:7723   ← 谎报
+$ echo $?
+0                                                          ← 假成功
+（daemon 实际已崩溃退出，只在日志里有 yaml 解析错误）
+```
+
+  根因：CLI 只做 `os.Stat` 检查**文件存在**，不看内容。
+  对 `06` §3.2 的「④ CI 集成」是致命的：CI 看到 exit 0 + "started"
+  就继续，然后在某个**无关的**步骤失败 —— 排查方向被完全带偏。
+- **退出码不符合 `08` §1.3**：该节的流程图里四种拒绝情形
+  （未提供 / 不可读 / 过期 / 字段不全）**全部指向退出码 3**，
+  而 CLI 一律 `os.Exit(1)`。用 `credentialError` 类型映射
+  （而非字符串匹配 —— 那会在改文案时静默失效）。
+
+**Tests**
+- `core/scopekernel/authorization_test.go` —— 14 个新用例。
+- **变异验证**（两种破坏都被抓）：
+
+| 变异 | 结果 |
+|---|---|
+| 移除 90 天跨度上限 | ✅ 2 用例失败 |
+| 移除过期检查 | ✅ 2 用例失败 |
+
+**实测（四种拒绝 + 一种通过）**
+
+| 情形 | 退出码 |
+|---|---|
+| 未提供凭证 / 文件不存在 / YAML 损坏 / 已过期 | **3** ✅ |
+| 合规凭证（60 天跨度） | **0** ✅，daemon 实际运行 |
+
+★ 测试中我自己的 fixture 被这条新约束**拦下了**
+（`valid_from` 到 `valid_until` 121 天 > 90）—— 说明约束在起作用。
+顺带核实 `examples/roe.example.yaml` 合规（89 天）。
+
+### daemon 生命周期修复 + `restart` 补齐（CLI 覆盖率 44% → 53%）（2026-10-12）
+
+> 把"真跑一遍命令树"的方法用到 daemon 生命周期上
+> （start → status → restart → stop），又找到四个真实缺陷。
+
+**Added**
+- **`aleth daemon restart`**（`06` §3.2 职责①原文含"重启"，此前缺失）。
+  它不是 stop+start 的语法糖：必须**确认旧进程真的退出**再启动，
+  否则新进程撞上端口占用，错误信息会误导用户去查端口冲突。
+  **一个刻意的顺序**：凭证校验在**停止现有 daemon 之前** ——
+  顺序反了会把"拒绝启动"变成"服务中断"（有专门测试锁死）。
+- **`StatusOutput.daemon_pid`** —— CI 排查"端口被占"时需要它。
+
+**Fixed**
+- **`daemon stop` 在 Windows 必然失败**：`proc.Signal(os.Interrupt)`
+  在 Windows 上返回 `not supported by windows`（`os.Process.Signal`
+  只支持 `os.Kill`）。**更糟的是失败路径仍删除了 pid 文件** ——
+  daemon 继续运行、pid 文件却没了，用户再无 CLI 手段停它。
+  那把"停止失败"（可恢复）变成了"进程失控"（不可发现）。
+  - 修法：平台特定实现（`daemon_windows.go` / `daemon_unix.go`）。
+    Unix 用 SIGTERM（服务终止的标准信号）；Windows 用 `TerminateProcess`
+    并**等待确认退出**。
+  - 确立语义：**只有确认进程已退出才删 pid 文件** —— 两个方向的代价
+    不对称（留早了的代价是"下次 start 覆盖它"，删早了的代价是
+    "失去可发现性"）。
+  - Windows 用强杀不是妥协：daemon 的持久状态每次写操作即落盘
+    （append-only + WAL），且 Q8 本来就用意外终止验证"崩溃后数据仍一致"。
+- **`status` 无条件报 `daemon_running: false`**：daemon 在跑也报 false，
+  直接破坏 `06` §3.2 的「④ CI 集成」—— CI 脚本靠该字段决定
+  "要不要先启动 daemon"，恒 false 会让脚本每次尝试启动 → 端口冲突
+  → **误判为环境故障**。修为 pid 文件 + 进程存活**双查**。
+- **pid 解析是前缀匹配**（由新测试抓到）：`fmt.Sscanf("12x34", "%d")`
+  **成功**且得到 `12` —— 损坏的 pid 文件会让 CLI 去操作一个**无关进程**
+  （stop 路径上等于杀别人的进程）。修为 `strconv.Atoi`。
+
+**Tests**
+- `cmd/aleth/daemon_test.go` —— 12 个新用例，覆盖率 **43.9% → 53.0%**。
+
+**★ 一次未通过的变异验证（方法记录）**
+- 最初只用"不存在的 pid"测 `stopProcess`，走的是 `FindProcess` 失败路径，
+  **从不执行真正的终止调用** —— 把 Windows 实现改回缺陷版本时**测试全绿**。
+  那是"用绿灯替换有效性"：测试在，但覆盖不到该路径。
+- 补上 `TestStopProcessActuallyTerminatesAProcess`（启动真实长驻子进程
+  并终止它）后重跑变异 —— 这次被抓（2 用例失败）。
+
+**实测（完整生命周期）**
+
+```
+$ aleth daemon start --authorization dev_roe.yaml --config dev_cfg.yaml
+alethd started (pid 53520), listening on 127.0.0.1:7723
+$ aleth status --format json
+{"daemon_running": true, "daemon_pid": 53520, "listen_addr": "127.0.0.1:7723"}
+$ aleth daemon restart --authorization dev_roe.yaml --config dev_cfg.yaml
+stopped old daemon (pid 53520)
+alethd started (pid 34748), listening on 127.0.0.1:7723
+$ aleth daemon stop
+alethd (pid 34748) stopped
+```
+
+### CLI 控制平面修复 + `aleth export` 补齐（覆盖率 0% → 44%）（2026-10-12）
+
+> `cmd/aleth` 覆盖率 **0%** —— 16KB 用户面向的控制面代码，一个测试都没有。
+> 真跑一遍命令树后立刻发现两处"宣传了但不可用"。
+
+**Added**
+- **`aleth export`**（`06` §3.2 职责⑤「报告导出」）—— 此前**该子命令
+  根本不存在**，而 `06` §3.2 的"典型用法"里就写着
+  `aleth export --session sess_018f... --format evidence-bundle --out ./audit/`。
+  这条路径的缺失尤其要紧：本项目第一原则是"结论必须由证据显现"，
+  而**导出证据供外部审计**正是这条原则对外的接口 ——
+  没有它，"可证明性"只能在 WebUI 里看，无法交给第三方复核。
+  - 导出 `TracedEvidenceChain` 并**自带出处元信息**
+    （schema_version / generated_at / generator / session_id /
+    daemon_endpoint / contract_version）—— 无出处的审计产物无法复核。
+  - **路径穿越防护**：`sanitizeForFilename` 只保留 `[A-Za-z0-9_-]`。
+    会话 ID 在团队模式下来自远端，未处理地拼进路径会造成目录穿越。
+  - `contractVersion()` 取 proto 描述符的**真实字段**，不编造版本号。
+
+**Fixed**
+- **`aleth status --format json` 报 `unknown flag`**：代码
+  `cmd.Flags().GetString("format")` **读取了该 flag 但从未注册它**，
+  而 `--help` 与 `06` §3.2 都在宣传它。
+  后果不只是"少个选项"：`06` §3.2 要求 CLI 承担
+  「④ CI 集成（无界面模式）」，而**机器可读输出正是那条路径的全部** ——
+  它一直是断的。
+- **`status` 硬编码 `os.Stdout`**（由新测试抓到）：导致命令**不可测**，
+  且调用方无法用 `SetOut` 重定向 —— 与 `06` §3.2 的设计取向
+  "面向脚本可组合"直接冲突。改为走 `cmd.OutOrStdout()`。
+- **导出文件名秒级时间戳会互相覆盖**（由新测试抓到）：同一秒内两次导出
+  覆盖彼此。秒级粒度对"CI 里连续导出多个会话"是真实场景。改为毫秒。
+
+**Tests**
+- **`cmd/aleth/cli_test.go`**：18 用例，覆盖率 **0% → 43.9%**。
+  测试重点是**跑命令树**（`rootCmd().Execute()`）而不是测内部函数 ——
+  契约是"这些命令能用"。
+- **变异验证**（两种破坏都被抓）：
+
+| 变异 | 结果 |
+|---|---|
+| 再次移除 `--format` flag 注册（还原原缺陷） | ✅ 3 用例失败 |
+| 移除路径穿越防护 | ✅ 2 用例失败 |
+
+**诚实说明**
+- 整会话导出时**如实说明契约缺口**（无"列出会话内全部 finding"的 RPC），
+  而不是产出一份"看起来完整"的空 bundle —— 那会让审计方误以为
+  拿到了全集（`docs/10` §0）。
+- `06` §3.2 的职责③「脚本化批量操作」与⑥「范围与授权凭证录入」
+  **仍未交付**（需 gRPC 客户端接线），已在交接文档登记。
+
+### OTel 接线 + 稳定性实测通过（Q8 首次给出 PASS）（2026-10-12）
+
+**Added**
+- **OTel 接线**（`cmd/alethd/obs.go`）：`core/obs`（M6 T6.2）自 I0 起
+  就实现了 span 属性键、context 传播与闸门结果记录，但
+  **`grep -rn 'core/obs' cmd/ core/` 返回空** —— 6.3KB 死代码、0% 覆盖。
+  后果不是"少个功能"，而是 `M6` §8.2 承诺的三条可追溯链路
+  （agent 为什么这么做 / 这个结论的证据是什么 / 这行数据从哪来）
+  **只是声明** —— 三条链路的载体（span）从未被创建。
+  - `installTracing` 默认装 **noop provider**（零遥测，D18）；
+    ★ **未开启导出时 span 仍被创建与传递** —— 这让"接线正确"与
+    "是否导出"解耦，否则"默认零遥测"这个最需要验证的形态反而无法验证。
+  - `obsUnaryInterceptor` / `obsStreamInterceptor` 按**层归属**
+    （而非方法名前缀）映射 `SpanKind`。
+  - `traceStatusFor` 区分"预期内的拒绝"与"真故障"：
+    `APERTURE_OVER_BUDGET` / `PermissionDenied` / `FailedPrecondition`
+    是 `M3` §2.2 N4 与 `07` §8.2 认可的**正确拒绝**，标 Error 会让 trace
+    充满噪声、掩盖真实故障 —— 但仍记录错误事件（"被拒绝了"要可追溯）。
+- **`core/obs/obs_test.go`**：13 用例，覆盖率 **0% → 100%**。
+  用 OTel 官方 `tracetest.SpanRecorder` 断言 span 真的产生
+  （断言"符合 OTel 规范的 span"而非"符合我实现的 span"）；
+  `TestAttributeKeysAreStable` 锁死属性键取值（它是**对外契约**，
+  改名会让已导出的 trace 与看板失联）。
+
+**Verified（Q8 的首次实测结论）**
+- **稳定性测试按规格口径实测 PASS**：
+
+```
+{"result": "PASS", "duration_s": 1015, "warmup_s": 600, "samples": 45,
+ "crashes": 0, "probe_failures": 0,
+ "fp_rss_growth_pct": -0.4, "ad_rss_growth_pct": 2.77}
+```
+
+  方法：先跑 `warmup=60s` 得 8.04%（超阈值），再按 `M6` §12 的规格口径
+  跑 `warmup=600s` 得 **2.77%（通过）**。
+  **结论：此前的 8.04% 是 Go runtime 的启动堆扩张，不是泄漏** ——
+  规格里的预热窗口正是为此而设（原文："Go 的 GC 只在堆增长约 100% 时
+  触发，回收后默认不立即把内存归还 OS"）。
+
+  这同时验证了该判据的**口径设计是必要的**：若无预热窗口，
+  任何长时 Go 服务都会恒被判为泄漏（假阳性）。
+
+**Fixed**
+- `go.mod` 补齐 OTel 的四项说明（许可证 / 维护活跃度此前缺失），
+  并写入**版本约束**：`go get` 默认拉 v1.47.0，它要求 **go >= 1.26**，
+  会顶掉 CI 的 `GO_VERSION=1.24` —— 必须锁 v1.29.0。
+
+### 修复稳定性 harness 的两个缺陷（此前从未跑通）（2026-10-12）
+
+> `tests/stability/run.sh`（P0 门禁第 1 条 / Q8 的执行入口）在 I0 之后
+> 被实现，但**从未真正跑通过** —— 一跑即崩。两个缺陷叠加，
+> 且都属"不跑就发现不了"的类型。
+
+**Fixed**
+- **非 ASCII 路径下的解释器解析失败**：项目路径含 `渗透`，
+  Windows 上 Python 的 stdout 默认按**控制台代码页**（本机 GBK）编码，
+  `渗透` 输出为 GBK 字节 `311 370 315 270`；而 Git Bash 的文件系统层按
+  **UTF-8** 解释同一串字节 → `$PY` 指向不存在的路径 → 脚本在第一处调用即崩。
+  修法：`PYTHONIOENCODING=utf-8`（实测字节变为 UTF-8 的
+  `346 270 227 351 200 217`，正常找到）。
+- **grpcio 版本与生成代码不匹配**：生成代码要求 `grpcio>=1.84.0`，
+  实际运行的解释器是 1.82.1。这是上一条的**下游症状**，
+  解释器选对后自动消失（非独立缺陷）。
+
+**Changed**
+- 修正 `04` §I0 的陈旧记录：原文写「`tests/stability/run.sh` 尚未实现」，
+  但该脚本后来已交付（含 `make stability` / `make stability-smoke`）。
+
+**踩坑记录（值得留痕）**：我第一版"修法"是改用 `command -v python`
+绕开非 ASCII 路径 —— 那其实把解释器换成了**系统 Python**
+（无本项目 venv 依赖），于是 focalplane 启动即崩，错误信息从
+"找不到文件"变成一个看起来像依赖问题的版本冲突。
+**"用错解释器"比"路径乱码"更隐蔽。** 已改回绝对路径 + 强制 UTF-8。
+
+**实测证据**（修复后冒烟 20s）：
+
+```
+focalplane serving on 127.0.0.1:7728 (ledger: .../ledger.db; ...)
+probe=ok fp_rss=4944KB ad_rss=15612KB
+{"result": "FAIL", ..., "crashes": 0, "probe_failures": 0, ...}
+  注：steady_samples=0 < 4 —— 属「无法判定」而非「未通过」：
+      运行时长不足以覆盖预热窗口（--warmup 600s）。
+```
+
+末尾的"FAIL"是**正确行为**：26s 覆盖不了 600s 预热窗口，
+harness 如实说"无法判定"而非假装通过（`docs/10` §0）。
+
+**仍未完成**：24h 全量运行（需专用环境）。
+
+### test(redline): R9 机械化守护 —— 三个核心视图不得被省略（2026-10-12）
+
+> R9 此前是十条红线里**唯一没有机械化守护**的一条：只出现在注释与
+> ★ 图标里，没有任何检查会因"删掉一个核心视图"而失败。
+> 这正是 `docs/10` §0 点名的模式 —— **用"绿灯"替换"有效性"**。
+
+**Added**
+- **`tests/test_redline_r9_core_views.py`**（8 用例，`pytest.mark.redline`）：
+  - 三个核心视图的路由必须存在，**且不得指向 `NotImplementedPage`**
+    （占位等价于省略）；
+  - 导航里**恰好** 3 个核心视图标记；
+  - ★ **标记必须正好在那三个视图上** —— 若只断言"有 3 个"，
+    把别的页面标上也能过，那会让红线变成形式；
+  - 核心视图不得渲染硬编码示例数据；
+  - **元断言**：若有人从 `docs/09` 删掉 R9 本测试失败，
+    暴露"守护的是一个已不存在的规则"。
+
+**变异验证（4 种破坏方式全部被抓）**：
+
+| 变异 | 结果 |
+|---|---|
+| 删掉「冲突矩阵视图」的核心标记 | ✅ 2 用例失败 |
+| 核心视图路由改成占位页 | ✅ 1 用例失败 |
+| 删掉核心视图路由 | ✅ 2 用例失败 |
+| 把 ★ 标到别的页面（成本面板） | ✅ 2 用例失败 |
+
+**接入 CI**：用与 `tests/redline/` 相同的 marker，`make redline` 与 CI 的
+redline job 自动收集 —— 无需改 CI 配置，也不会因"忘记登记"而失效。
+redline 门禁由 33 → **41 passed**。
+
+### I5 补充 · 光圈连续调节 + 契约缺口登记（2026-10-12）
+
+> `M3 §7` 的 DoD 原文是「三档光圈 **+ 连续调节**可用」，
+> 而 I5 只交付了三档 —— **"连续调节"从未实现**，
+> 且 I5 的回填表把整条标为"✅ 达成"（不准确，已修正）。
+
+**Added**
+- **光圈连续调节**（`core/aperture`）：
+  - `Overrides` —— 三轴调节层（`max_hops` / `max_entities` /
+    `depth_per_entity`）。zero value = 不覆盖，因此**三档仍是主入口**。
+  - `Interpolate(from, to, t)` —— 相邻档位间的线性插值。
+    要求在**相邻**档位间插值：跨越档位会跳过中间档的语义，故拒绝。
+  - `validateApertureSemantics` —— 守护"恒定曝光"**物理语义**：
+    不允许"深且宽"。没有它，连续调节就是绕过 `M3 §4.1` 硬约束的后门。
+  - `Assembler.AssembleWithOverrides` / `Server.AssembleWithOverrides`。
+
+**Fixed**
+- **审计记录失真**（由新测试抓到）：装配路径原用 `SettingFor(stop)`，
+  它总是从档位名重新解析档案，**无法表达调节后的参数** ——
+  `bundle.aperture` 记成档位原值而实际装配用调节值，
+  即"审计说 A、实际做 B"，比没有审计更糟。
+  拆出 `settingFromProfile` 修复。该缺陷在只支持三档时不会暴露
+  （档位值与实际值恒等），是连续调节把它逼出来的。
+- **截断让连续调节在小整数轴上退化**：`uint32(2.5)=2` 会让
+  hops 2→3 的 t=0.5 仍等于 2，该轴退化成"只有档位值"。
+  改为四舍五入（t≥0.5 至少走到 to 的方向）。
+
+**Changed**
+- **修正 I5 回填中不准确的一行**：原「三档光圈 + 连续调节可用 ✅ 达成」
+  拆为两行，明确标注"原 I5 只交付三档，该条当时标注达成是不准确的"。
+  按维护铁律保留判断痕迹，不抹掉"曾经漏了"这个事实。
+
+### 已登记的三个契约缺口（需 `contract:` PR，2026-10-12）
+
+> 按 `docs/09` R1（契约冻结）**未自造 RPC、未改 `proto/`**。
+> 两个缺口都在页面上显式声明，未知字段留空并说明（不编造）。
+
+| # | 缺口 | 影响 | 位置 |
+|---|---|---|---|
+| 1 | `OrchestratorService` 无「读取任务图」RPC | 决策队列（页面 7）只能消费 `NextReady.blocked_reasons`，无法渲染 `06 §7.1` 的完整四要素卡片 | `04` §I6 回填；`I6-交接` D-3 |
+| 2 | 全契约无「列会话」RPC（只有 `ListAdapters` 一个 List 方法） | 会话总览（页面 1）无法渲染"会话列表、状态、成本、进度、风险摘要" | `04` §I0 回填 |
+| 3 | `AssembleRequest` 是 `[frozen]`，无可放光圈覆盖参数的字段 | 连续调节只能走进程内 API；gRPC 调用方与 MCP 的 `assemble_context` 只能三档 | `04` §I5 回填 |
+
+**三个缺口的共性（第 3 个与前两个不同）**：
+· 缺口 1、2 是**缺"枚举"语义** —— 契约只定义了"写"与"按已知 ID 查"。
+· 缺口 3 是**缺"参数化"语义** —— 契约把可调参数固化成了枚举档位，
+  于是"档位之间"的表达无处可放。
+
+提议在同一个 `contract:` PR 里补齐：
+· 只读 `GetGraph(session_id) → TaskGraph`
+· 只读 `ListSessions() → repeated SessionSummary`
+· `AssembleRequest` 加三个可选覆盖字段
+  （`max_hops` / `max_entities` / `depth_per_entity`）
+
+### I11 补充 · MCP 接口（双向中的提供者方向）+ 两个服务的接线（2026-10-12）
+
+> 逐服务的装配审计发现：契约的 10 个 service 里只有 6 个真正注册到
+> `registry`，且 `04 §I11` 明确要求的「MCP 接口」一直是空占位目录。
+> 本轮补齐。
+
+**Added**
+- **MCP 接口**（`06` §3.4 的"作为提供者"）：
+  - `core/mcp/gate.go` —— `Gate` 接口 + **默认拒绝一切**的闸门。
+    MCP 的调用方是外部 agent，**不受本项目红线约束**，
+    因此"未配置闸门"必须是拒绝（与 `08` §1.1「无凭证不启动」同源）。
+  - `core/mcp/server.go` —— 5 个工具：`trace_finding` / `project_mind_map` /
+    `assemble_context` / `list_adapters`（只读）+ `execute_tool`（有副作用）。
+    **不暴露"终止会话"** —— `09` §R6 规定终止唯一入口是内部仲裁通道。
+  - `core/mcp/servicegate.go` —— 闸门实现**复用既有服务**
+    （ScopeService / GatewayService / GovernorService），不重新判断。
+  - `cmd/aleth/mcp.go` —— `aleth mcp` 子命令（stdio transport）。
+    daemon 不可达时**启动即失败**并给出可操作提示。
+- **`core/gateway/server.go`** —— GatewayService 的 gRPC 适配。
+  `core/gateway` 在 I3 就实现并测试了，但此前**只在进程内**被 Ingest 消费，
+  从未注册为 gRPC 服务。
+- **`core/focalplane` 的 TerminationProxy** —— I7 的终止仲裁已在 Python
+  实现并测试（51 组伪达成用例），但 Go 侧从未装代理，
+  因此 `registry.Termination` 一直是 `unimplementedTermination`。
+
+**Changed**
+- **契约的 10 个服务由 6 个装配到 9 个**。唯一未装的是 `SandboxService`
+  （无实现，需容器运行时签发 `exec_id`）。
+
+**Security / 诚实性**
+- **MCP 不得有绕过闸门路径**（`06` §3.4）：`execute_tool` 走
+  **本地回环 gRPC** 而非直连 Go 结构体 —— 直连会绕过 gRPC 拦截器链
+  （观测 + 脱敏），"走与 WebUI 相同的路径"这句承诺就不成立。
+  有测试断言**闸门拒绝时工具绝不执行**（即闸门是事前阻断而非事后告警）。
+- **GatewayService：真实值不出现在任何响应里**（`07` §A2）。
+  契约的 `TokenMapping` 只有 category/token/masked_value ——
+  **没有可放真实值的字段**，因此这是类型系统层面的保证。
+  另有测试断言"Tokenize → ScanOutbound 组合必然干净"（Q5 的核心性质）。
+- **MCP 闸门范围裁决失败时不执行后续步骤** —— 越界请求不消耗预算（P-4）。
+
+**Fixed**
+- `go.mod` 此前**缺少新增依赖的四项说明**（`docs/09` §5 #3 要求
+  用途/许可证/维护活跃度/替代方案）。已为 grpc-web、sqlite 与
+  新增的 go-sdk 补齐，并标注**版本约束**：
+  `go-sdk v1.0.0` 是最后一个 `go 1.23` 的版本，v1.1+ 要求 go >= 1.25
+  会顶掉 CI 的 `GO_VERSION=1.24`。
+
+### I12 前置 · 闭合 I6 遗留的两处缺口（2026-10-12）
+
+> I6 交付时留下两处明确登记的缺口：熔断器只实现 6/8 类、
+> 检查点的跨模块状态字段恒为空。本轮全部闭合。
+
+**Added**
+- **熔断器补齐 2 类**（`M5` §4.4 的完整 8 类）：
+  - 「总运行时长上限 → 硬熔断」：新增 `MaxSessionDuration`（默认 24h，
+    与 P0 门禁的稳定性测试时长对齐）与 `CircuitState.SessionElapsed`。
+    判定**排在幻觉占比之前** —— 时长是确定性的客观边界，
+    而幻觉占比依赖计数质量，已超时数倍的会话应先停。
+  - 「单任务 token 超预算 → 强制收窄光圈重试 1 次」：
+    新增 `MaxTaskTokens`（默认 50000）与 `CircuitState.CurrentTaskTokens`。
+    动作是 `ActionNarrowAperture` 而**非** `ActionStopAgent` ——
+    规格原文明确要求"重试 1 次，失败则 SKIPPED"。
+- **检查点记录跨模块状态快照**：新增 `orchestrate.SnapshotSource` 接口
+  + `cmd/alethd/checkpoint_adapter.go`（M2 的 `StateHash` → `graph_version`；
+  预算状态哈希 → `budget_snapshot_hash`）。
+  **`CheckpointInfo` 的两个字段不再是空的** ——
+  此前恒空让检查点无法与其他模块状态对齐，而那正是
+  `04 §I6 DoD③`「rewind 后证据一致性校验」需要比对的东西。
+
+**Fixed**
+- **Q12 门禁回归**：I5 的光圈页 placeholder 写了实例内网地址
+  （`10.40.23.5`），触发"前端源码中出现内网 IP"检查。
+  **修源码而非门禁**（`docs/09` R2）—— 改用文档安全示例域名。
+  根因是 I5 提交时只跑了 `lint.sh`（不含 Q12），未跑整套门禁。
+- **熔断器零阈值语义不一致**：无进展条件是六类里唯一缺
+  `th.MaxNoProgressSteps > 0` 守卫的一处 ——
+  零值会让"任何一步"都触发 rewind，与其余五类的"零值 = 显式禁用"
+  语义相反。由新增的 `TestZeroThresholdDisablesThatCondition` 抓到。
+
+**Security / 诚实性**
+- 检查点快照取不到时**留空并告警，不编造值** ——
+  伪造的版本号会让"rewind 后证据一致"看起来有据可依而实际没有
+  （`docs/10` §0）。`Checkpoint.Warnings` 记录具体原因
+  （"来源没版本概念"与"根本没接线"的处置完全不同）。
+- 两个快照来源**各自独立**：一个失败不影响另一个（有测试覆盖）。
+
+### I11 · M9 评测 Harness + 报告导出页（十个页面全部交付）（2026-10-12）
+
+> 定位：`04` §I11 ｜ `modules/M9`。**M9 是项目诚实性的技术保障 ——
+> 所有对外数字必须由它产生**（M9 §1）。详见
+> `docs/iterations/I11-交接.md`。
+
+**Added**
+- **`agents/src/aletheia/harness/`** —— M9 评测 Harness：
+  - **7 个自定义指标**（M9 §4）：幻觉率 / 证据可复现率 / 越界尝试数 /
+    实体召回率 / 每个 CONFIRMED 成本 / 假阴性率 / 证据归因准确率，
+    加 2 个标准指标（精确率 / 召回率）；
+  - **七节报告生成**（M9 §6）：运行元信息 / 主结果 / 指标 / 成本 /
+    **失败案例分析 ★** / 能力边界声明 / 附录；
+  - **基准适配器框架** + `ReproducibilityManifest`（T9.1/T9.12）；
+  - **引用纪律**（M9 §3）：`BaselineClaim` 强制四项标注。
+- **前端报告与导出页**（`06` 页面 8）：分层浏览（主报告 / 附录 / 调试）
+  + 导出 Markdown / PDF / SARIF。
+  **至此 `06 §6.1` 的十个页面全部交付真实实现。**
+
+**Changed**
+- 报告在**无失败记录时显式说明**而非省略该节 —— 省略会让读者分不清
+  "没有失败"与"没写失败"（M9 §2.2 N3）。
+- `limitations` 为空时报告标注"⚠ 未声明任何能力边界 —— 这本身是一个
+  失真信号"（M9 §11 承诺 3：不隐藏）。
+
+**Security / 诚实性（API 层面的强制）**
+- `build_report` 的 `failures` / `limitations` 是**必填关键字参数**
+  （无默认值）—— 调用方不能"忘了写"。
+- `HarnessRun.aggregate()` **不提供**过滤参数（有 `inspect.signature`
+  断言守护）—— M9 §10："全部基准跑全量任务，不做筛选"。
+- **分母为 0 时返回 `None` 而非 0** —— 填 0 会让"没测"看起来像
+  "测了且结果为 0"，对幻觉率而言是**把未测量伪装成完美达成**
+  （`docs/10` §0 点名的失真模式）。
+- **越界用绝对计数而非比率** —— 规格目标是"0（非 0 即缺陷）"；
+  越界不可稀释。
+- **基线表同时收录 87%（有描述）与 7%（无描述）** —— M9 §3 的反面
+  案例正是"只报 87% 而不带条件"；有专门测试守护。
+
+### I10 · M8 业务逻辑意图建模（六类违背 + 双模式检出）（2026-10-12）
+
+> 定位：`04` §I10 ｜ `modules/M8` §4。填补行业空白 G2 —— ARTEMIS 研究
+> （2025-12，8,000 台真实企业网络）指出：**关键 Web 漏洞中约 70% 属于
+> 业务逻辑缺陷，当前没有任何自主 agent 能可靠检测**。这是全行业唯一
+> 被明确点名的 0% 区域。详见 `docs/iterations/I10-交接.md`。
+
+**Added**
+- **`agents/src/aletheia/intent/`** —— M8 业务逻辑意图建模：
+  - **契约模型与抽取**：OpenAPI（1.0）、源码注解（0.9）、流量（0.6）、
+    文档（0.4）四级置信度，每个字段带 `source` + `confidence`；
+  - **六类契约违背判定**（BL1 越权 / BL2 价格篡改 / BL3 流程绕过 /
+    BL4 配额绕过 / BL5 权限提升链 / BL6 竞态），全部以
+    `ProbeResult` 为输入、`Violation` 为输出；
+  - **自建靶场**：13 个缺陷覆盖 BL1–BL6 全部六类，业务语义取自真实
+    电商/银行/审批流场景；
+  - **双模式检出统计**：分母按模式收缩（WITH_CONTRACT 13/13、
+    WITHOUT_CONTRACT 11/13），漏报与误报分别统计并渲染清单。
+- **前端**（待办，见 `04` §4 I11 的报告导出页）。
+
+**Fixed（由测试与全量门禁抓到）**
+- **`from_openapi` 的 `UnboundLocalError`**：`for ctype, media in ...`
+  的循环变量在循环外被引用；`GET` 请求通常无 `requestBody` → 变量未
+  绑定 → **运行时崩溃**。测试用真实形态 OpenAPI 立刻抓到。
+- **`core/checkpoint` 的 `TestListOrdering` 间歇失败（约 1/6）**：
+  `List()` 用秒级截断时间排序、同秒回退到 ID —— 三次快速 `Save` 若
+  **跨越整秒边界**，顺序变成创建顺序而非 ID 顺序。
+  **后果不止测试不稳**：`Latest()` 依赖该顺序，顺序不确定意味着
+  `Latest` 可能返回错误检查点，让 `rewind` 恢复到非预期状态。
+  改为**完全按 ID** 排序（P-5 要求完全确定）；修复后连续 20 次运行
+  0 失败。
+
+**Security**
+- **强证据门禁**（`M8` §4.3 末句的机械化）：`judge()` 要求
+  `data_returned=True`，仅 200 状态码**不计入检出**。这是 M4 的 G-3
+  在业务逻辑场景的应用，避免"只看状态码就判定成功"这类 D1 幻觉式
+  成功。**不提供放松该门禁的入口**。
+
+### I9 · M5 后渗透（多跳路径 + 痕迹记录）（2026-10-12）
+
+> 定位：`04` §I9 ｜ `modules/M5` §5。详见 `docs/iterations/I9-交接.md`。
+
+**Added**
+- **`agents/src/aletheia/postexploit/`** —— 后渗透规划与记录：
+  - **多跳跳板链求解**（Dijkstra）：代价表按现实成本标定
+    （凭据复用最便宜），**外置可调**；低置信关系代价更高；
+  - **逐跳任务派生**：每跳带结构化 `target_entity_hints`（供 M3
+    Autofocus）与独立 `evidence_id`（供取证校验）；
+  - **痕迹记录**（T5.13）：7 类痕迹，append-only，**无任何删除入口**。
+
+**Fixed**
+- **Dijkstra 实现缺陷（由测试抓到）**：初版用全局 `seen` 在**入堆时**
+  标记已访问节点，让"第一次到达某节点的路径"永久占用该节点 ——
+  实测选了代价 100 的路径而非代价 2 的路径。
+  **危险处在于默认代价下两条路代价相近，选错不明显**；而真实环境里
+  "凭据复用"与"穿透两个服务"的代价差异恰好很大。
+  修复：visited 集合随路径携带，另加 `best_cost` 上界表保留剪枝效率；
+  新增 2 个回归测试（含菱形拓扑）。
+
+**Security**
+- `TraceLedger` **不提供任何删除/清理入口** —— M5 §5 T5.13 原文
+  "不做自动清理，避免破坏取证"。理由：清理会销毁证据、破坏 G-4 复现
+  的环境指纹、且不可逆。有测试守护该约束（若有人加 `clear()` 则失败）。
+
+### I8 · M7 三路融合（冲突矩阵）（2026-10-12）
+
+> 定位：`04` §I8 ｜ `modules/M7` §4。填补行业空白 G4 —— 调研 39+ 个
+> 开源项目后确认**没有任何项目统一了黑盒/白盒/二进制三路观测**。
+> 详见 `docs/iterations/I8-交接.md`。
+
+**Added**
+- **`agents/src/aletheia/fusion/`** —— M7 三路融合：
+  - **观测器统一接口**（`Observer` / `StaticObserver`）+ `SourceKind`
+    语义映射。`StaticObserver` 基类**强制** `exploitability_verified=False`
+    且不提供覆盖入口 —— 这正是矩阵赖以成立的不对称（黑盒能验证可利用性，
+    静态只能指出缺陷存在）；
+  - **四象限冲突矩阵**：完整实现 `M7 §4.4` 表格四行，且断言四象限是
+    两个独立维度的**完整笛卡尔积**；
+  - **冲突驱动下游任务派生**（R6）：派生的任务带**结构化**
+    `target_entity_hints`（M3 §8 要求），并明确提醒
+    "**不要当作失败的利用尝试而跳过**"；
+  - **覆盖度声明**（§9）：结构化三级（COMPLETE/PARTIAL/UNAVAILABLE）
+    而非布尔 —— "跑了但没发现"与"没跑"是不同的观测事实。
+- **前端 ★冲突矩阵视图**（`06` 页面 6）：2×2 矩阵 + 计数 + 点击下钻。
+  **这是三个核心视图的最后一个**（R9 完整）。
+  视觉权重刻意不同：最高价值象限用最高对比度 + 独立高亮条，
+  低优先级象限弱化 —— 若四象限同等权重，用户无法一眼看出
+  "哪几条才是本次评估最有价值的部分"。
+
+**Changed**
+- **融合对齐键不含 `location`**（由测试暴露的设计修正）：三路对"位置"
+  的表述天然不同（黑盒 URL / 白盒源码行号 / 二进制文件偏移），
+  含 location 会让三路对同一缺陷的观测**永远无法对齐**。代价是已知的
+  过度对齐（同载体的同类缺陷会合并），属刻意取舍。
+
+**Fixed（预防性 —— 由实测确认的静默失效）**
+- 记录并测试了写回 M2 的集成契约：`core/prism` 的 DEFECT 身份键含位置，
+  而 `MergeBranch` 只在**同一 entity_id** 上生成 `CONTRADICTS`。
+  因此写回时必须用融合对齐键决定身份位置字段。
+  **违约后果实测为静默失效**：`merged=true, conflicts=0, CONTRADICTS=0`
+  —— 没有报错，只是不工作。已用 `TestM2WritebackContract` 固定。
+
+### I7 · M4 终止仲裁（幻觉终止 0 次通过）（2026-10-12）
+
+> 定位：`04` §I7 ｜ `modules/M4` §4.5。消除 D3（发现随机哈希就宣告
+> 胜利并终止会话）。详见 `docs/iterations/I7-交接.md`。
+
+**Added**
+- **`agents/src/aletheia/focalplane/arbiter.py`** —— Termination Arbiter：
+  - 四道独立结构化校验（目标匹配 / 归属确认 / 证据闸门 / 幻觉检测），
+    **不采信 agent 的任何自我评估**；
+  - **判定顺序刻意按"最便宜且最致命"排**：幻觉检测放最前。若先查证据，
+    精心构造的证据链可以为幻觉背书（`M4` §8 风险栏）；
+  - 幻觉检测三类判据：误判 banner（`searchhsplit`/`login:` 等
+    **100% 假阳性**来源）/ 裸哈希 / 长 Base64；
+  - `GoalSpec` 目标解析（flag/shell/data/unknown），**解析不出则拒绝**
+    （fail-closed —— 放行会让"目标没写清就能随便终止"成为绕过路径）；
+  - 循环检测：同一 agent 被拒 3 次后 guidance 升级为"停止重复"。
+- **`TerminationService` 接线**（`focalplane/server.py`）：
+  `FocalPlaneServicer` 同时承载 LedgerService 与 TerminationService ——
+  两者共享同一 FocalPlane 实例（Arbiter 需查询账本，拆进程反而引入
+  跨进程查询）。
+- **测试套件**（`test_arbiter.py`）：**51 组伪达成用例**
+  （6 类来源）+ **11 组合法终止用例** + 26 个单元测试。
+
+**Changed**
+- `FocalPlane` 新增 `request_termination()` 与 `set_scope_checker()`；
+  scope 未注入时第 ② 道 **fail-closed（全部拒绝）**—— 归属未确认是
+  AIxCC 重罚项（错误关联 -7 分）。
+
+**Fixed**
+- **`root@target:~#` 被误判为幻觉**（由假阴性用例抓到）：token 提取
+  按 `:` 切分把它切成 `~#`（2 字符）→ 落入"信息量不足"分支，
+  **真实的 root shell 达成物被拒**，agent 将永远无法合法终止。
+  修复：新增 `_ACCESS_INDICATOR` 优先判定；`:` 切分限制在"前缀是
+  短标签"时（避免切坏 URL）。
+- **16 字符 Base64 未被识别**（同由假阴性用例抓到）：正则长度下限 20
+  过高 → 落进"长度不足"分支。两者都拒绝但**原因不同**，而原因要写进
+  审计（agent 据此修正）。修复：下限降到 16。
+
+### I6 · M5 编排层（确定性骨架）（2026-10-11）
+
+> 定位：`04` §I6。本轮交付**确定性部分**，LLM 接线（Agent 池 /
+> Planner prompt / 模型分级路由）有意分离为下一步 —— 详见
+> `docs/iterations/I6-交接.md` §6「为什么分离」。
+
+**Added**
+- **`core/orchestrate/`** —— M5 编排层：
+  - 任务图构造与校验（`NewGraph`）：拒绝空/重复 `task_id`、悬空依赖、
+    **有环图**（有环图无法求解，必须在进入调度前拒绝 —— 否则表现为
+    "任务永远不 ready"，伪装成"暂时没有可做的任务"）；
+  - **确定性规划器**：Kahn 拓扑排序 + 声明序 tie-break、资源约束裁剪、
+    关键路径（`NextReady` / `CriticalPath`）；
+  - 状态流转（`ApplyResult`）：FAILED **必须**带 `FailureRecord`
+    （Refiner 的输入契约）、DONE 为终态不可静默重入；
+  - **Refiner**：六类结构化失败类型各有**不同**的定向动作
+    （`CONTEXT_MISSING` → 提高光圈档位；`WRONG_HYPOTHESIS` → 回滚分支
+    重规划；`HALLUCINATION` → 停 agent 重新取证 等），未知类型**拒绝
+    而非猜**；
+  - **熔断器**：6 类动作，评估顺序从严到宽，**范围越界最高优先级**
+    （fail-closed 终止整场会话）；
+  - 检查点 / rewind / fork：账本**不回滚**（记水位而非副本）、
+    RUNNING 任务恢复为 READY、里程碑检查点不被淘汰。
+- **前端 gRPC-Web 桥接**（`cmd/alethd/support.go`）：HTTP 端口挂载
+  `grpcweb.WrapServer`，含**挂载前缀剥离**。
+- **`ConflictEntityIDs`**（`core/prism`）：M3 消费的冲突判据
+  （当前有效版本 `version > 1`）。
+- **`GovernorService` gRPC 接线**（`core/governor/server.go`，补齐 I3
+  遗留）：I3 已实现并测试 CostGovernor，但当时未接 gRPC。两点设计：
+  预扣被拒返回**业务结论**（`reserved=false` + 状态 + 原因）而非 gRPC
+  传输错误；无预算来源时 **fail-closed**（不给默认值 —— 猜测的上限
+  比"显式拒绝执行"更危险）。
+- **配置项 `budget.session_tokens`**（默认 0 = 未配置，启动时高亮告警）。
+- **前端人机协同决策队列**（`06` 页面 7）：按 `06 §7.1` 四要素渲染
+  （证据摘要 / **不确定性标注** / 选项 + 影响评估）。不确定性**刻意
+  放在选项之前** —— 先让决策者看到"系统有多确定、缺什么信息"，
+  避免被"看起来很确定"的表述诱导直接点按钮。终止选项仅在触发
+  「涉及会话终止」或「涉及范围边界」时出现（否则是伪选择）。
+- **前端成本与预算面板**（`06` 页面 10）：gauge 上直接画出
+  **80% 收窄线与 100% 熔断线**，并单列「剩余余量」给出到两条线的
+  确切 token 数 —— 只显示"已用 60%"而不显示"还有多少碰到硬约束"
+  无法让使用者判断风险。
+
+**Fixed**
+- **前端 RPC 全断**（I0 起存在，直至本次暴露）：HTTP mux 只挂了静态资源，
+  `/grpc` 前缀从无 handler，因此**所有**前端 RPC 表现为
+  `Transport error: Failed to fetch` —— I2 证据链视图与 I4 心智地图在
+  浏览器里都不可达。三处独立修复缺一不可（详见 `I4-交接.md` §1）。
+- **`url_prefix` 授权绕过**（`core/scopekernel`）：解析时只保留 host、丢弃
+  path，且用裸 `strings.HasPrefix` 比较 —— `https://api.example.com/v2/`
+  连带授权 `/`、`/admin`，且命中 `api.example.com.evil.com`。改为
+  保留 `PathPrefix` + host 精确相等 + **按路径段边界**比较。
+- **`Governor` 预扣被拒即永久熔断**（`core/governor`）：预扣失败是**瞬时
+  并发争用**（零消耗），旧实现直接置 `circuitOpen` 且无解除路径，把剩余
+  预算永久锁死。改为熔断只由「已消耗 ≥ 总额」触发；`Consume` 改为幂等；
+  新增 `Release` 归还预扣。
+- **`RawStore.Put` 并发写入竞态**（`core/ingest`）：临时名是确定性的
+  `哈希 + ".tmp"`，并发写同一内容时争抢同一文件（实测 200 并发失败 90 次）。
+  改用 `os.CreateTemp` 唯一名 + `fsync` + rename 冲突收敛。
+
+**Security**
+- `url_prefix` 绕过修复属**授权范围放大**（`07` §T5.5 级别）。
+  该规则此前**全仓库零测试覆盖**，是它未被发现的原因；本轮补齐
+  8 个用例，并做**变异验证**（回退旧逻辑 → 新套件报出 8 处
+  `AUTHORIZATION BYPASS` 并 FAIL）。
+
+### I5 · M3 光圈控制 ★核心创新（2026-10-11）
+
+> 定位：`04` §I5。详见 `docs/iterations/I5-交接.md`。
+
+**Added**
+- **`core/aperture/`** —— M3 光圈控制：
+  - 三档光圈模型（f/1.4 / f/4 / f/16，数值逐项取自 `M3` §4.1）；
+  - Autofocus：实体引用抽取（URL/CIDR/IP/域名，**刻意保守不误抽**）+
+    关系权重表（§4.3）+ 六维相关度打分（§4.2 步骤 3）；
+  - Context Assembly：**不允许截断**（§2.2 N4），超预算返回
+    `APERTURE_OVER_BUDGET` 并自动降档重试；
+  - 保守 Token 估算器（§4.5 系数）+ 省略维度**显式**声明（§4.4）；
+  - **召回率测试套件**：100 组跨任务依赖链（任务 B 的 hint **只含
+    自己知道的主机名**，不传实体 ID）。
+- **前端光圈上下文视图**（`06` 页面 5 ★核心视图）：档位阶梯、摘要、
+  **省略声明与入选清单同等显眼**（诊断价值所在）、选取依据审计。
+
+**Changed**
+- `M3` §4.2 步骤 5 标题写"按预算**截断**"，与 §2.2 N4「不允许截断」
+  矛盾 —— 按 N4 实现（贪心装入 + 显式省略），测试注释记录该判断。
+
+### I4 · M2 棱镜分解与心智地图（2026-10-11）
+
+> 定位：`04` §I4。详见 `docs/iterations/I4-交接.md`。
+
+**Added**
+- **`core/prism/`** —— M2 心智地图（系统的唯一真源）：
+  - 单一属性图（SQLite，纯 Go 驱动**无 cgo**）+ 七类实体 schema；
+  - **确定性实体身份**：`entity_id = 类型前缀 + sha256(kind‖规范业务键)`，
+    使同一主机被 nmap 与 httpx 分别发现时落到**同一个** ID；
+  - **多源写入不覆盖不合并**（§4.3，对 D12 级联失败的回应）：值冲突
+    生成新版本 + `Conflict{VALUE_MISMATCH}`；值相同只追加 provenance；
+  - **时间版本与回放**（§4.4）：严格区间查询，回放保真；
+  - **假设分支**（§4.5）：创建/回滚/合并，合并闸门拒绝未验证假设；
+  - 子图投影（§4.2）+ 幂等写入 + 分支并发上限。
+- **前端心智地图浏览器**（`06` 页面 3）：表视图 / 关系视图 / 时间回放。
+
+**Security**
+- `RawStore.Put` 加入 `fsync`：证据必须在返回 URI 前真正落盘，
+  否则崩溃会留下"有引用无内容"。
+- M2 `graph_meta.schema_version` 版本不符拒绝打开（fail-closed）。
+
+### Q8 · 长时稳定性 harness 补齐（2026-09-27）
+
+> 定位：`04` §2 P0 门禁第 1 条（24h 无崩溃 / 无内存泄漏）的执行入口。
+> 此前为「骨架但跑不通」状态。详见
+> `docs/iterations/I3-Q8稳定性harness-交接.md`。
+
+**Added**
+- **RSS 采样器**（`tests/stability/rss.py`）：标准库 `ctypes` 调 Win32
+  `GetProcessMemoryInfo` / 读 Linux `/proc/<pid>/status`，**零新增依赖**；
+  采样失败以非零退出码显式上报。
+- **`make stability-smoke`**：90s 冒烟入口，用于改 harness 后先验证接线。
+- **判定摘要新增 `rss_sample_failures`**：采样不可得时直接判失败，
+  不再折算为 0% 增长。
+- **gRPC 独立端口**（`server.grpc_port`，默认 7724）：I0 骨架里 `grpcServer`
+  从未 `Serve`（唯一 listener 被 HTTP/WebUI 占用），gRPC 网络入口实际不存在
+  —— 由 Q8 harness 首次真实运行暴露。与 HTTP（7723）双端口，零 h2c 分流歧义。
+
+**Fixed**
+- `tests/stability/probe.py` 探针目标端口 7723（HTTP/WebUI）→ **7724**（gRPC）：
+  此前探针 100% 失败，`last_run.json` 恒为 `FAIL`。
+- `run.sh` 的 `rss_of()` 改为不依赖从 bash 调用 `powershell`（受限 shell 会拦截，
+  失败仅表现为空输出）—— 这是「RSS 增长 < 5%」退化为**恒真断言**的根因，
+  比判定失败更危险（`docs/10` §0「绿灯替代有效」的同类风险）。
+- `probe.py` 全部 RPC 增加超时：此前无超时，长跑中一次对端无响应即永久挂起。
+- `run.sh` 的 `duration_s` 此前恒为 `null`；时长基准由「累加 interval」改为
+  **真实墙钟**，避免标称 24h 实际跑 30h+。
+- `probe.py` 未通过 `ruff format` 导致 `make lint`（Q7）失败；已修复。
+- `server.grpc_port` 补**范围与端口冲突校验**（`core/config`）：此前越界或与
+  HTTP 端口同值都要等到 `net.Listen` 阶段才失败，错误信息不如配置校验清晰；
+  现与 `server.port` 的校验对称（`TestValidationRejects` 新增 3 子用例）。
+- `run.sh` 的整目录清理改为**只删账本 + 删除后回验**：`rm -rf` 在受限环境下
+  会因单次批量删除超阈值被拒，而失败被 `-f` 静默吞掉；残留的 `ledger.db`
+  会让本轮 `evidence_id` 与上一轮撞号，被 M4 的幂等/伪造检测拒收 ——
+  表现成「probe 全程失败」，实为脏状态污染（误导性结论）。清理失败现
+  显式 `exit 2`。
+
+**Changed**
+- **RSS 判据引入预热窗口**（真源 `docs/modules/M6` §12，`docs/04` §6 同步）：
+  判据改为比较**预热窗口（默认 600s）结束后的稳态区间**。依据：30 分钟观测
+  确认 `alethd` 的 RSS 约 5 分钟后进入平台期（末 11 分钟 −0.28%），属
+  Go runtime 高电平堆行为、**非内存泄漏**；旧口径把启动堆扩张计入基线，
+  对任何长时服务恒为假阳性（实测 `ad_rss_growth_pct = 15.12%`）。
+  `run.sh` 新增 `--warmup`；摘要新增 `warmup_s` / `steady_samples`；
+  稳态样本 < 4 判 FAIL 并显式提示「无法判定」（**缺证据 ≠ 无泄漏**）。
+  **阈值 5% 未变** —— 改的是比较区间的选取，不是放宽断言（`docs/09` R3）。
+
+**Security**
+- `.gitignore` 补 `tests/stability/last_run/`：此前 `probe_key.hex`
+  （一次性 Ed25519 私钥）与运行采样不在忽略范围内。
+
+**已知缺口**
+- **24h 全量未执行** —— P0 门禁第 1 条尚未通过。已议定改在**专用 Linux
+  环境**执行（不占用开发机）；harness 已跨平台，Linux 侧经 `/proc` 采样。
+
 ### I3 · M6 范围内核与隐私网关（2026-09-25）
 
 **Added**

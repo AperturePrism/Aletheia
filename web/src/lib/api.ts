@@ -36,8 +36,23 @@ import type {
   GatewayServiceClient,
 } from "@gen/aleth/v1/aletheia";
 
-/** alethd 的 gRPC-Web 端点。 */
-export const GRPC_ENDPOINT = `ws://${location.host}/grpc`;
+/**
+ * alethd 的 gRPC-Web 端点。
+ *
+ * 必须是 http(s)://，**不是** ws:// —— nice-grpc-web 的 createChannel
+ * 默认用 FetchTransport（见其 channel.js），而 fetch 只接受 http/https。
+ * 传 ws:// 会让每次 RPC 抛 TypeError: Failed to fetch，表现为
+ * "Transport error: Failed to fetch"（I0–I3 期间前端的真实状态）。
+ *
+ * 路径 /grpc 必须与 cmd/alethd 的 grpcWebPathPrefix 逐字符一致 ——
+ * 该前缀挂的是 gRPC-Web 桥接（grpcweb.WrapServer）。两侧不一致时
+ * 请求会落到 SPA handler 并返回 index.html，同样表现为传输错误。
+ *
+ * WebSocket 传输仅在配 grpcwebproxy 时可用（06 §8 的"实时通道"）。
+ * 当前用 fetch 版 gRPC-Web：单机本地场景下延迟可接受，且零额外进程。
+ * 引入实时流（I6 编排层的人机协同队列）时再评估切换。
+ */
+export const GRPC_ENDPOINT = `${location.protocol}//${location.host}/grpc`;
 
 export const channel = createChannel(GRPC_ENDPOINT);
 export const clientFactory: ClientFactory = createClientFactory();
@@ -50,6 +65,35 @@ export const ledgerClient = clientFactory.create(
   LedgerServiceDefinition,
   channel,
 ) as unknown as LedgerServiceClient;
+
+// I4：PrismService 客户端（心智地图浏览器，06 页面 3 的数据源）。
+// 同一模式：definition 手写、消息常量来自 @gen/。
+import { PrismServiceDefinition } from "./prismDefinition";
+export const prismClient = clientFactory.create(
+  PrismServiceDefinition,
+  channel,
+) as unknown as PrismServiceClient;
+
+// I5：ApertureService 客户端（光圈上下文视图，06 页面 5 ★核心视图的数据源）。
+import { ApertureServiceDefinition } from "./apertureDefinition";
+export const apertureClient = clientFactory.create(
+  ApertureServiceDefinition,
+  channel,
+) as unknown as ApertureServiceClient;
+
+// I6：OrchestratorService 客户端（人机协同决策队列，06 页面 7 的数据源）。
+import { OrchestratorServiceDefinition } from "./orchestratorDefinition";
+export const orchestratorClient = clientFactory.create(
+  OrchestratorServiceDefinition,
+  channel,
+) as unknown as OrchestratorServiceClient;
+
+// I6：GovernorService 客户端（成本与预算面板，06 页面 10 的数据源）。
+import { GovernorServiceDefinition } from "./governorDefinition";
+export const governorClient = clientFactory.create(
+  GovernorServiceDefinition,
+  channel,
+) as unknown as GovernorServiceClient;
 
 // 说明：05 契约当前只生成了 *ServiceClient / *ServiceImplementation 接口
 // （ts-proto 的 outputServices=nice-grpc），没有生成 ServiceDefinition 常量，

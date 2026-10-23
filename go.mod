@@ -55,9 +55,19 @@ require (
 
 	// OpenTelemetry。go.opentelemetry.io/otel + /otel/trace，Apache-2.0，CNCF 项目。
 	// 用途：modules/M6 §8 全链路追踪与决策溯源（docs/02 §7.5 可观测性栈）。
+	//   实际使用点：core/obs（span 创建与 context 传播）+ cmd/alethd（gRPC
+	//   拦截器）。默认装 noop provider —— 零遥测（D18）。
+	// 许可证：Apache-2.0（CNCF 毕业项目）。
+	// 维护活跃度：高（CNCF 可观测性事实标准，多语言一致）。
 	// 替代方案：自研 trace 上下文（不采纳 —— 生态互通是 D14 的核心诉求：
 	//   WebUI 内置轻量查看器与 Grafana/Loki 都要能消费同一份数据）。
+	//   /otel/sdk 仅测试用（tracetest.SpanRecorder 断言 span 真被创建）。
+	// ★ 版本约束：**必须 v1.29.0**。`go get` 默认会拉到 v1.47.0，
+	//   它要求 **go >= 1.26**，会顶掉 CI 的 GO_VERSION=1.24
+	//   （本文件已多次踩到这类升级陷阱）。升级前务必
+	//   `go mod edit -go 1.24` 并核对 `go` 指令。
 	go.opentelemetry.io/otel v1.29.0
+	go.opentelemetry.io/otel/sdk v1.29.0
 	go.opentelemetry.io/otel/trace v1.29.0
 
 	// 结构化日志。go.uber.org/zap，MIT，Uber 维护，Go 日志事实标准。
@@ -77,7 +87,7 @@ require (
 require (
 	// —— 间接依赖（go mod tidy 生成，禁止手工增删）——
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
@@ -93,7 +103,73 @@ require (
 	golang.org/x/sys v0.29.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241223144023-3abc09e42ca8 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/inconshreveable/mousetrap v1.1.0 // indirect
+// ============================================================================
+// 功能依赖（按 docs/09 §5 #3 的四项说明：用途 / 许可证 / 维护活跃度 / 替代方案）
+// ============================================================================
+//
+// 说明：`go mod tidy` 会把下面这些移到上面的 require 块并丢掉注释。
+// 新增依赖后请重新补回四项说明，并更新本注释块。
+//
+// github.com/improbable-eng/grpc-web v0.15.0
+//   用途：浏览器 gRPC-Web 桥接（I4 修复 —— WebUI 主界面的 RPC 通道）。
+//         web/src/lib/api.ts 的 GRPC_ENDPOINT 经此桥接访问后端。
+//   许可证：Apache-2.0。
+//   维护活跃度：中等（原 improbable-eng 项目已归档，但 API 稳定、
+//         广泛使用；本项目只用到 WrapServer 这一稳定入口）。
+//   替代方案：connect-go（能力等价但需重写前端 transport，且引入第二套
+//         RPC 风格，与"契约同源"目标无益，不采纳）。
+//
+// github.com/modelcontextprotocol/go-sdk v1.0.0
+//   用途：MCP server（06 §3.4 的"作为提供者"）—— 把 Aletheia 的能力
+//         暴露给 Claude Desktop / Cursor 等外部 agent。
+//   许可证：MIT（Model Context Protocol 官方 Go SDK，Google 与
+//         Anthropic 共同推动，Linux 基金会旗下）。
+//   维护活跃度：高（官方 SDK，随 MCP 规范演进；v1.x 已稳定）。
+//   替代方案：手写 JSON-RPC over stdio（不采纳 —— MCP 的握手、
+//         能力协商与工具 Schema 生成都是规范细节，手写等于重实现
+//         一个协议栈，且必然与客户端实现漂移）。
+//   ★ 版本约束：v1.0.0 是最后一个 `go 1.23` 的版本；v1.1+ 要求
+//     go >= 1.25，会顶掉本项目 CI 的 GO_VERSION=1.24。
+//     升级该依赖时务必检查 `go` 指令是否仍为 1.24。
+//
+// modernc.org/sqlite v1.34.5
+//   用途：M2 心智地图的单一属性图存储（I4）。
+//   许可证：BSD-3-Clause。
+//   维护活跃度：高（modernc.org 系列的纯 Go SQLite 移植，持续跟随
+//         上游 SQLite 版本）。
+//   替代方案：mattn/go-sqlite3（需 cgo，与"无 C 工具链也能全量构建"
+//         这一既有事实冲突，不采纳）。
+//   ★ 版本约束：与上面同源 —— v1.35+ 会把 `go` 指令顶到 1.26。
+//     升级时同样需要检查。
+require (
+	github.com/improbable-eng/grpc-web v0.15.0
+	github.com/modelcontextprotocol/go-sdk v1.0.0
+	modernc.org/sqlite v1.34.5
+)
+
+require (
+	github.com/cenkalti/backoff/v4 v4.1.1 // indirect
+	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
+	github.com/google/jsonschema-go v0.3.0 // indirect
+	github.com/klauspost/compress v1.11.7 // indirect
+	github.com/rs/cors v1.7.0 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	nhooyr.io/websocket v1.8.6 // indirect
+)
+
+require (
+	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	golang.org/x/exp v0.0.0-20230315142452-642cacee5cc0 // indirect
+	golang.org/x/mod v0.22.0 // indirect
+	modernc.org/libc v1.61.13 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.8.2 // indirect
+)

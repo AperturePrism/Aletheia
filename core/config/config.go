@@ -50,6 +50,9 @@ const (
 	DefaultListenAddr = "127.0.0.1"
 
 	// DefaultListenPort 默认端口。
+	// DefaultGRPCPort gRPC 服务端口（与 HTTP/WebUI 分离，见 ServerConfig.GRPCPort）。
+	DefaultGRPCPort = 7724
+	// DefaultListenPort 默认端口。
 	DefaultListenPort = 7723
 
 	// DefaultDataDirName 数据目录名（相对工作目录）。
@@ -108,6 +111,9 @@ type Config struct {
 	// Focalplane 内部 LedgerService 通道（I2）。仅回环 —— 校验见
 	// validateFocalplane；L3 实现在 Python（agents focalplane），alethd 转发。
 	Focalplane FocalplaneConfig `mapstructure:"focalplane"`
+
+	// Budget 会话级 token 预算（M6 §6 / 05 §6.3 GovernorService）。
+	Budget BudgetConfig `mapstructure:"budget"`
 }
 
 // ServerConfig 监听与 TLS。
@@ -128,6 +134,14 @@ type ServerConfig struct {
 	// 单机模式下启动时生成一次性令牌，防本机其他进程访问。
 	// 令牌**不落普通日志**（07 §T5.1）。
 	AccessTokenFile string `mapstructure:"access_token_file"`
+
+	// GRPCPort gRPC 服务端口（I3 新增）。
+	//
+	// I0 的骨架把唯一 listener 给了 HTTP/WebUI，grpcServer 从未 Serve
+	// —— gRPC 网络入口实际不存在（I3 stability harness 真实运行时暴露）。
+	// gRPC 与 HTTP/WebUI 分端口：同一端口做 h2c/HTTP1 分流需要额外的
+	// 多路复用层，双端口零歧义。同样仅回环（Q13 由 validateServer 校验）。
+	GRPCPort int `mapstructure:"grpc_port"`
 }
 
 // StorageConfig 存储路径。
@@ -138,7 +152,8 @@ type StorageConfig struct {
 	EvidenceDir string `mapstructure:"evidence_dir"`
 	// LedgerFile 证据账本（append-only，05 §5.2）。
 	LedgerFile string `mapstructure:"ledger_file"`
-	// MapFile 心智地图（I4 实现；I0 只占位 schema）。
+	// MapFile 心智地图（M2 单一属性图，SQLite）。I4 起真实使用；
+	// 由 prism.Open 打开，schema 版本不符时拒绝启动（fail-closed）。
 	MapFile string `mapstructure:"map_file"`
 	// AuditLogFile 审计日志（append-only + 哈希链，08 §6.2）。
 	AuditLogFile string `mapstructure:"audit_log_file"`
@@ -195,6 +210,22 @@ type FocalplaneConfig struct {
 	Addr string `mapstructure:"addr"`
 }
 
+// BudgetConfig 是会话级 token 预算（M6 §6 CostGovernor，05 §6.3）。
+//
+// 为什么必须显式配置而不能有默认值：预算就是成本约束本身。
+// governor.NewGovernor 拒绝零预算（"无预算的会话是一个永不熔断的
+// 熔断器"），因此这里也**不给默认值** —— 未配置时 SessionTokens 为 0，
+// GovernorService 的 Reserve 会 fail-closed 拒绝执行。
+//
+// 这与 08 §1.1「无凭证不启动」是同一条思路：把"忘了配置"变成
+// "显式拒绝"，而不是"用一个猜测的上限跑起来"。
+type BudgetConfig struct {
+	// SessionTokens 单会话的 token 总额上限。
+	//
+	// 0 表示未配置 —— GovernorService 将拒绝所有 Reserve（fail-closed）。
+	SessionTokens uint64 `mapstructure:"session_tokens"`
+}
+
 // Default 返回安全默认配置。
 //
 // 关键点：默认值是"最小权限 + 最小暴露"，不是"最方便"。
@@ -204,8 +235,9 @@ func Default() *Config {
 	return &Config{
 		Deploy: ModeSingle,
 		Server: ServerConfig{
-			Addr: DefaultListenAddr,
-			Port: DefaultListenPort,
+			Addr:     DefaultListenAddr,
+			Port:     DefaultListenPort,
+			GRPCPort: DefaultGRPCPort,
 		},
 		// EvidenceDir 留空：由 DefaultFilePaths() 基于 DataDir 派生
 		//（data_dir/evidence，05 §2.1 RawOutputRef.storage_uri）。
@@ -228,6 +260,9 @@ func Default() *Config {
 		//（手动/编排启动）。未配置时 alethd 不装配 Ledger 代理，
 		// LedgerService 显式 UNIMPLEMENTED —— 不假装可用。
 		Focalplane: FocalplaneConfig{Addr: ""},
+		// Budget.SessionTokens 默认 0 = 未配置。刻意不给默认值：
+		// 预算就是成本约束，猜测的上限比"显式拒绝执行"更危险。
+		Budget: BudgetConfig{},
 	}
 }
 
@@ -275,6 +310,7 @@ func setDefaults(v *viper.Viper, cfg *Config) {
 
 	v.SetDefault("server.addr", cfg.Server.Addr)
 	v.SetDefault("server.port", cfg.Server.Port)
+	v.SetDefault("server.grpc_port", cfg.Server.GRPCPort)
 	v.SetDefault("server.tls_cert_file", cfg.Server.TLSCertFile)
 	v.SetDefault("server.tls_key_file", cfg.Server.TLSKeyFile)
 	v.SetDefault("server.access_token_file", cfg.Server.AccessTokenFile)
@@ -299,6 +335,8 @@ func setDefaults(v *viper.Viper, cfg *Config) {
 	v.SetDefault("data_handling.no_external_transmission", true)
 
 	v.SetDefault("telemetry.enabled", false)
+
+	v.SetDefault("budget.session_tokens", cfg.Budget.SessionTokens)
 }
 
 // Validate 校验配置的自洽性。
@@ -328,6 +366,19 @@ func (c *Config) validateServer() error {
 	}
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("config: server.port %d out of range [1,65535]", c.Server.Port)
+	}
+	// grpc_port 与 port 保持对称校验：两者各自独立 Listen，越界或取值相同
+	// 都要等到 net.Listen 阶段才失败，错误信息远不如配置校验清晰。
+	// 取值相同没有合法语义 —— gRPC 与 HTTP/WebUI 是**分端口**设计
+	//（同端口做 h2c/HTTP1 分流需要额外的多路复用层，见 ServerConfig.GRPCPort）。
+	if c.Server.GRPCPort < 1 || c.Server.GRPCPort > 65535 {
+		return fmt.Errorf(
+			"config: server.grpc_port %d out of range [1,65535]", c.Server.GRPCPort)
+	}
+	if c.Server.GRPCPort == c.Server.Port {
+		return fmt.Errorf(
+			"config: server.grpc_port must differ from server.port (both are %d); "+
+				"gRPC 与 HTTP/WebUI 各自独立监听", c.Server.Port)
 	}
 
 	// 判断是否对外监听。回环地址（127.0.0.0/8、::1）视为本机。
@@ -397,6 +448,11 @@ func validateRetention(days int) error {
 // ListenAddr 返回完整的监听地址。
 func (c *Config) ListenAddr() string {
 	return net.JoinHostPort(c.Server.Addr, strconv.Itoa(c.Server.Port))
+}
+
+// GRPCListenAddr 返回 gRPC 服务的监听地址（server.addr:server.grpc_port）。
+func (c *Config) GRPCListenAddr() string {
+	return net.JoinHostPort(c.Server.Addr, strconv.Itoa(c.Server.GRPCPort))
 }
 
 // IsLoopback 判断监听地址是否仅限本机。

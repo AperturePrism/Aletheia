@@ -1,0 +1,362 @@
+/* 人机协同决策队列（06 §6.1 页面 7）的样式。
+ *
+ * 视觉目标：每张卡片是一个"需要人做判断"的单元，因此卡片内部按
+ * 06 §7.1 的四个要素分区呈现 —— 证据摘要 / 不确定性 / 选项与影响。
+ *
+ * 其中**不确定性标注刻意放在选项之前**：先让决策者看到"系统有多确定、
+ * 缺什么信息"，再给选项。反过来（先给按钮再看不确定性）会诱导
+ * 直接点按钮，那正是 06 §7.1 要防的"被看起来很确定的表述误导"。 */
+
+.dq-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+.dq-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dq-field input {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input, transparent);
+  color: inherit;
+  font-size: 13px;
+  min-width: 160px;
+}
+
+/* 诚实声明区：不渲染假提交按钮 */
+.dq-notice {
+  padding: 9px 12px;
+  border-left: 3px solid #6b7280;
+  background: #6b72800d;
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 18px;
+}
+
+/* 契约缺口声明 —— 用琥珀色与普通说明区分：它是"能力受限"而非"提示" */
+.dq-gap {
+  padding: 11px 15px;
+  border-left: 3px solid #d97706;
+  background: #d977060d;
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  line-height: 1.7;
+  margin-bottom: 18px;
+}
+
+.dq-gap strong {
+  color: #d97706;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.dq-gap p {
+  margin: 5px 0 0;
+  color: var(--text-dim);
+}
+
+/* ---- 被阻塞任务视图（契约内可用的图状态）---- */
+
+.dq-blocked {
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.dq-blocked h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin: 0 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dq-count {
+  font-size: 11px;
+  font-weight: 400;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--border-subtle, #8882);
+}
+
+.dq-blocked ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+.dq-blocked li {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-subtle, #8881);
+}
+
+.dq-blocked li:last-child {
+  border-bottom: none;
+}
+
+.dq-blocked-ready code {
+  color: #1f9d55;
+}
+
+.dq-blocked-reason {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.dq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dq-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.dq-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--border-subtle, #8881);
+  flex-wrap: wrap;
+}
+
+.dq-role {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 3px;
+  background: #2f6feb22;
+  color: #2f6feb;
+  font-size: 11px;
+  margin-right: 8px;
+}
+
+.dq-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.dq-id {
+  margin-left: 10px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.dq-head-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.dq-status {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 1px 8px;
+  border-radius: 3px;
+  background: var(--border-subtle, #8882);
+}
+
+.dq-triggers {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* 触发原因必须显著：它是"为什么需要人类介入"的答案 */
+.dq-trigger {
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: #d9770622;
+  color: #d97706;
+  font-size: 11px;
+  cursor: help;
+}
+
+.dq-section {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle, #8882);
+}
+
+.dq-section h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin: 0 0 8px;
+}
+
+.dq-none {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.dq-evidence {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+.dq-evidence li {
+  padding: 3px 0;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.dq-failure-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #d33a2c22;
+  color: #d33a2c;
+  font-size: 10px;
+}
+
+.dq-link {
+  background: none;
+  border: none;
+  color: #2f6feb;
+  cursor: pointer;
+  padding: 6px 0 0;
+  font-size: 12px;
+}
+
+.dq-evidence-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* ---- 不确定性：放在选项之前 ---- */
+
+.dq-uncertainty {
+  background: #d9770608;
+}
+
+.dq-confidence {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.dq-conf-bar {
+  flex: 1;
+  max-width: 240px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-subtle, #8882);
+  overflow: hidden;
+}
+
+.dq-conf-fill {
+  height: 100%;
+  background: #1f9d55;
+}
+
+.dq-conf-low {
+  background: #d97706;
+}
+
+.dq-conf-note {
+  color: #d97706;
+  font-size: 11px;
+}
+
+.dq-gaps {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+/* ---- 选项与影响评估 ---- */
+
+.dq-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dq-option {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.dq-option:hover {
+  border-color: #2f6feb;
+  background: #2f6feb0d;
+}
+
+.dq-option-danger:hover {
+  border-color: #d33a2c;
+  background: #d33a2c0d;
+}
+
+.dq-option-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* 影响评估与选项标签同级呈现 —— 没有影响的选项等于让人类盲选 */
+.dq-option-effect {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dq-decided {
+  margin-top: 24px;
+  padding: 12px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+}
+
+.dq-decided h2 {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+
+.dq-decided ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.8;
+}

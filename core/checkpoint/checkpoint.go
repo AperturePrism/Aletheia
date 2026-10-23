@@ -213,11 +213,24 @@ func (s *Store) List(sessionID string) []Meta {
 		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		ti := out[i].CreatedAt.Truncate(time.Second).Unix()
-		tj := out[j].CreatedAt.Truncate(time.Second).Unix()
-		if ti != tj {
-			return ti < tj
-		}
+		// ★ 排序必须**完全确定**（P-5），因此不按时间戳比较。
+		//
+		// 此前用 `CreatedAt.Truncate(time.Second).Unix()` 排序，
+		// 同秒时回退到 ID。这个口径有一个真实的缺陷（由
+		// TestListOrdering 的间歇失败暴露，约 1/6 概率）：
+		//
+		//   三次快速 Save 若**跨越整秒边界**，秒级截断会产生不同的
+		//   时间值 → 走时间分支 → 顺序变成"创建顺序"而不是"ID 顺序"。
+		//   于是同一批数据在不同机器/不同时刻得到不同顺序。
+		//
+		// 而 `Latest` 依赖本函数的顺序（取 `all[len-1]`）——
+		// 顺序不确定意味着 `Latest` 可能返回错误的检查点，
+		// 那会让 rewind 恢复到非预期状态。
+		//
+		// 正确口径：**按 ID 排序**是最简单且完全确定的方案。
+		// ID 就是创建顺序的单调标识（`Save` 由调用方生成递增/有序 ID，
+		// 见 `newTestStore` 与 M5 的检查点命名），因此按 ID 排序
+		// 与"按创建顺序"一致，且不受时钟分辨率影响。
 		return out[i].ID < out[j].ID
 	})
 	return out

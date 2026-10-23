@@ -29,15 +29,17 @@ fi
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
-cat > "$tmpdir/roe.yaml" <<'ROE'
+cat > "$tmpdir/roe.yaml" <<ROE
 version: 1
 authorization:
   granted_by: "本地冒烟测试（非真实授权）"
   granted_to: "AperturePrism 冒烟测试"
   contact: "smoke@example.invalid"
   ticket_id: "SMOKE-I0"
-  valid_from:  "2020-01-01T00:00:00Z"
-  valid_until: "2035-01-01T00:00:00Z"
+  # 有效期动态生成（今天起 30 天）—— authz 修复后跨度上限 90 天由
+  # Scope Kernel 强制，静态的 15 年占位凭证会让 Q11 冒烟在启动期失败。
+  valid_from:  "$(date -u +%Y-%m-%dT00:00:00Z)"
+  valid_until: "$(date -u -d "+30 days" +%Y-%m-%dT00:00:00Z)"
 targets:
   include:
     - cidr: "10.255.255.0/24"

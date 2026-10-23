@@ -126,6 +126,15 @@ func NewRawStore(dir string) (*RawStore, error) {
 }
 
 // Put 写入内容并返回 sha256 哈希与存储 URI。
+//
+// 并发安全：临时文件名由 os.CreateTemp 生成**唯一**名，不再使用
+// `哈希 + ".tmp"`。后者在并发写入相同内容时会让多个 goroutine 争抢
+// 同一个临时文件 —— Windows 上直接报 "being used by another process"，
+// POSIX 上则可能互相截断后 rename 出半份内容。二者都表现为"工具跑完了
+// 但证据丢了"，与"证据不可丢失"的硬要求冲突（05 §2.1 / 07 §T4.3）。
+//
+// 内容寻址本身让重复写入幂等（哈希即路径），因此并发的正确终态是
+// 「其中一个成功写入，其余直接命中已存在文件」。
 func (s *RawStore) Put(content []byte) (hash, uri string, err error) {
 	sum := sha256Hex(content)
 	sub := filepath.Join(s.dir, sum[:2])
@@ -136,11 +145,45 @@ func (s *RawStore) Put(content []byte) (hash, uri string, err error) {
 	if _, statErr := os.Stat(path); statErr == nil { // 内容寻址：已存在即命中
 		return sum, path, nil
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, content, 0o600); err != nil {
+
+	// 唯一临时名：同目录内创建，保证 rename 是同文件系统内的原子操作。
+	f, err := os.CreateTemp(sub, sum[:8]+".*.tmp")
+	if err != nil {
+		return "", "", fmt.Errorf("create temp blob: %w", err)
+	}
+	tmp := f.Name()
+	// 任何失败路径都必须清理临时文件（否则残留垃圾）。
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	if _, err = f.Write(content); err != nil {
+		_ = f.Close()
 		return "", "", fmt.Errorf("write blob: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	// fsync：证据必须在返回 URI 前真正落盘，否则崩溃会留下"有引用无内容"。
+	if err = f.Sync(); err != nil {
+		_ = f.Close()
+		return "", "", fmt.Errorf("sync blob: %w", err)
+	}
+	if err = f.Close(); err != nil {
+		return "", "", fmt.Errorf("close blob: %w", err)
+	}
+	if err = os.Chmod(tmp, 0o600); err != nil {
+		return "", "", fmt.Errorf("chmod blob: %w", err)
+	}
+
+	if err = os.Rename(tmp, path); err != nil {
+		// 并发窗口：检查路径与 rename 之间，另一个 writer 已完成同一内容。
+		// Windows 的 rename 不覆盖已存在目标（报 "Access is denied"），
+		// POSIX 则会静默覆盖 —— 两种行为下"目标已存在且哈希正确"都是
+		// 成功终态（内容寻址保证同名即同内容），故此处收敛为幂等成功。
+		if _, statErr := os.Stat(path); statErr == nil {
+			_ = os.Remove(tmp)
+			return sum, path, nil
+		}
 		return "", "", fmt.Errorf("finalize blob: %w", err)
 	}
 	return sum, path, nil

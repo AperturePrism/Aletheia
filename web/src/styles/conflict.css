@@ -1,0 +1,274 @@
+/* 冲突矩阵视图（06 §6.1 页面 6，★核心视图）的样式。
+ *
+ * 设计意图（06 §6.2）：「把最高价值的信号放到最显眼的位置」。
+ *
+ * 因此视觉权重的分配是刻意的：
+ *   · **「打不通但有缺陷」象限用最高对比度**（紫罗兰边框 + 星标 + 强调底）
+ *     —— 它是本项目的第二个"第一"，在纯 CLI 输出里会被淹没；
+ *   · 「双源确认」用绿色（可信但不是差异化能力）；
+ *   · 「低优先级」用灰色弱化（它确实不重要）。
+ *
+ * 若把四个象限做成同等视觉权重，这个视图就失去了存在意义 ——
+ * 用户无法一眼看出"哪 11 条才是本次评估最有价值的部分"。 */
+
+.cf-toolbar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.cf-total {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.cf-total strong {
+  color: var(--text);
+}
+
+/* ---- ★ 最高价值象限的独立高亮条 ---- */
+
+.cf-highlight {
+  padding: 13px 17px;
+  border-left: 4px solid #7c5cff;
+  background: #7c5cff12;
+  border-radius: 0 5px 5px 0;
+  margin-bottom: 20px;
+}
+
+.cf-highlight-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 14px;
+  margin-bottom: 7px;
+}
+
+.cf-highlight-icon {
+  color: #7c5cff;
+  font-size: 16px;
+}
+
+.cf-highlight-sub {
+  font-size: 11px;
+  color: #7c5cff;
+  padding: 1px 8px;
+  border-radius: 9px;
+  background: #7c5cff1f;
+}
+
+.cf-highlight p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--text-dim);
+}
+
+/* ---- 四象限矩阵 ---- */
+
+.cf-matrix {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 6px;
+  margin-bottom: 22px;
+}
+
+.cf-matrix th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 4px 8px;
+}
+
+.cf-corner {
+  width: 110px;
+}
+
+.cf-rowhead {
+  text-align: right;
+  width: 110px;
+  white-space: nowrap;
+}
+
+.cf-cell {
+  padding: 14px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+  vertical-align: top;
+}
+
+.cf-cell-empty {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.cf-cell-main {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cf-cell-icon {
+  font-size: 15px;
+}
+
+.cf-cell-count {
+  color: var(--text-dim);
+  font-weight: 400;
+  font-size: 13px;
+}
+
+.cf-cell-priority {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* 各象限的视觉权重刻意不同 —— 见文件头说明 */
+
+/* ★ 最高价值象限：最高对比度 */
+.q-chained {
+  border-color: #7c5cff;
+  background: #7c5cff0d;
+}
+
+.q-chained .cf-cell-icon,
+.q-chained .cf-cell-main {
+  color: #7c5cff;
+}
+
+/* 双源确认：可信（绿），但不是本项目的差异化能力 */
+.q-confirmed {
+  border-color: #1f9d5555;
+  background: #1f9d550a;
+}
+
+.q-confirmed .cf-cell-main {
+  color: #1f9d55;
+}
+
+/* 白盒漏检：中性提醒 */
+.q-clean {
+  border-color: #d9770655;
+  background: #d977060a;
+}
+
+.q-clean .cf-cell-main {
+  color: #d97706;
+}
+
+/* 低优先级：弱化 */
+.q-low .cf-cell-main {
+  color: var(--text-dim);
+}
+
+.cf-cell-active {
+  box-shadow: 0 0 0 2px currentColor inset;
+}
+
+.cf-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---- 象限下钻明细 ---- */
+
+.cf-detail {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px 18px;
+}
+
+.cf-detail h2 {
+  font-size: 14px;
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cf-count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--border-subtle, #8882);
+}
+
+.cf-detail-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  font-size: 12px;
+  margin: 0 0 16px;
+}
+
+.cf-detail-meta dt {
+  color: var(--text-dim);
+}
+
+.cf-detail-meta dd {
+  margin: 0;
+}
+
+.cf-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.cf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.cf-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cf-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle, #8882);
+}
+
+.cf-eid {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.cf-arrow {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin: 0 6px;
+}
+
+.cf-note {
+  margin-top: 14px;
+  padding: 10px 13px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.cf-note-chained {
+  border-left: 3px solid #7c5cff;
+  background: #7c5cff0d;
+  color: var(--text-dim);
+}

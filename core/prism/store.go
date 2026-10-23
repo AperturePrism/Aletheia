@@ -1,21 +1,47 @@
-// Package prism 实现 L1 心智地图（modules/M2，docs/05 §3.3 PrismService）。
+// Package prism 实现 M2 棱镜分解与心智地图（L1）—— 系统的唯一真源。
 //
-// M2 是系统的唯一真源：上下文（M3）、agent 记忆、报告（M5）全部从它派生。
+// 契约依据：05 §3 ｜ 模块规格：modules/M2 ｜ 迭代：I4
 //
-// 存储决策（M2 §4.1）：部署形态为 PostgreSQL；I4 的运行时一致性 DoD
-// （多源版本保留 / SnapshotAt 回放 / 分支回滚字节级一致）由 Store 接口的
-// 内存实现承载 —— 契约定死、实现可变（05 §0 C1）；PostgreSQL 绑定在
-// 环境就绪后补（map/migrations/0001_init.sql 已按 PG 方言交付）。
+// 职责（M2 §2.1 R1–R6）：
 //
-// 语义不变量（M2 §4.3–§4.5，全部有测试锁定）：
-//   - 不覆盖不合并：属性冲突 → 新增版本 + Conflict 记录（VALUE_MISMATCH）
-//   - 时间版本：旧版本置 valid_to，新版本 valid_from := 写入时刻
-//   - 同一 spectrum_id 重复 Ingest 幂等（无副作用）
-//   - RollbackBranch 后图状态与「从未创建该分支」一致
-//   - MergeBranch 仅接受非 Hypothesis 实体（防止假设污染主分支）
+//	R1 光谱 → 实体/关系的分解（7 类实体）
+//	R2 多源写入与冲突保留（不合并、不覆盖）
+//	R3 时间版本管理（valid_from / valid_to）与历史回放
+//	R4 假设分支（创建 / 回滚 / 合并）
+//	R5 子图投影（按焦点与半径）
+//	R6 归档压缩（降采样为聚合节点，保留下钻能力）
+//
+// 明确不做（M2 §2.2）：不决定"该查什么"（M3）、不做预算判断（M3）、
+// 不判定漏洞状态（M4）、不调用 LLM 抽取实体（M1 解析器负责）、
+// **不采用多套存储**（单一图 + 逻辑视图投影 —— 对 PentAGI 四套存储的回应）。
+//
+// # 核心不变量（本项目第一原则「可证明性」在图上的落地）
+//
+//  1. 不覆盖、不合并：同一实体的冲突值各自成为**新版本**，全部保留。
+//     侦察漏掉的服务不再导致下游永不测试它（对 D12 级联失败的回应）。
+//  2. 时间由本包统一赋值，调用方不得自带时间戳 —— 与证据账本同源设计
+//     （M4 拒绝 caller-provided created_at 的同一理由：时间线必须由
+//     受信组件书写）。
+//  3. 回放保真：SnapshotAt(T) 必须与"当时实际认知状态"字节级一致。
+//  4. 回滚一致性：RollbackBranch 后图状态必须与**从未创建该分支**完全一致。
+//  5. 幂等：相同 spectrum_id 重复 Ingest 无副作用。
+//
+// # 存储选择
+//
+// 单进程嵌入式 SQLite（modernc.org/sqlite 纯 Go 驱动，无 cgo 依赖）。
+// 理由：I4 是单机形态（06 §5.1），零运维；schema 不用 SQLite 特有语法，
+// PostgreSQL 迁移属部署形态决策（团队模式 P3 之后，06 §5.2）。
+// 这与 M2 §4.1 的「单库原则」一致 —— 图、关系、来源、分支同库，
+// 不做跨存储同步；规模超限时**按会话分区**而非拆库。
 package prism
 
 import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -23,283 +49,300 @@ import (
 	"time"
 
 	alethv1 "github.com/AperturePrism/aleth/core/api/aleth/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	_ "modernc.org/sqlite" // 纯 Go SQLite 驱动（无 cgo）
 )
 
-// Clock 注入统一时间源（M2 §8：回放依赖严格时间语义，禁止调用方
-// 自行生成时间戳）。相同 clock 值内的多次写入共享同一 valid_from。
-type Clock struct {
-	mu   sync.Mutex
-	now  time.Time
-	tick time.Duration // 每次 Now() 推进的最小步长，保证严格递增
-}
+// MainBranchID 是主分支的固定标识。空 branch_id 在契约里表示"主分支"，
+// 内部统一归一化为该常量，避免空串在多处比较。
+const MainBranchID = "br_main"
 
-// NewClock 建立从 start 开始、每次 Now() 推进 tick 的时钟。
-// tick 用 1ms：测试中连续写入的可区分时点，且回放窗口稳定。
-func NewClock(start time.Time, tick time.Duration) *Clock {
-	return &Clock{now: start.Add(-tick), tick: tick}
-}
-
-// Now 返回当前时间并推进 tick。
-func (c *Clock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(c.tick)
-	return c.now
-}
-
-// Conflict 记录（05 §3.3 IngestResult.conflicts；M2 §4.3）。
-type Conflict struct {
-	EntityID         string
-	ConflictType     string // VALUE_MISMATCH / EXISTENCE_MISMATCH / CONTRADICTS
-	CompetingSources []provRec
-}
-
-// provRec 是 provenance 的内部轻量记录（非 proto）—— proto 消息含
-// sync.Mutex（MessageState），按值存储触发 vet 锁复制告警。
-type provRec struct {
-	SourceKind string
-	EvidenceID string
-	ExecID     string
-	ObservedAt time.Time
-}
-
-// MaxConcurrentBranches 分支上限（M2 §8：超限拒绝创建而非静默降级）。
+// MaxConcurrentBranches 是并发假设分支上限（M2 §8：超限拒绝创建，
+// 而非静默降级 —— 静默降级会让"分支隔离"这一安全属性失效）。
 const MaxConcurrentBranches = 8
 
-// Store 是内存实现的心智地图。并发安全。
+// schemaVersion 是图 schema 版本。与证据账本同构：版本不符拒绝打开
+// （fail-closed），避免用新代码读旧结构产生静默误读。
+const schemaVersion = 1
+
+// 预置错误。调用方用 errors.Is 判定，不做字符串匹配（P-2 确定性优先）。
+var (
+	// ErrBranchLimitExceeded 并发分支超限。
+	ErrBranchLimitExceeded = errors.New("prism: concurrent branch limit exceeded")
+	// ErrBranchNotFound 分支不存在。
+	ErrBranchNotFound = errors.New("prism: branch not found")
+	// ErrMainBranchImmutable 主分支不可回滚/删除。
+	ErrMainBranchImmutable = errors.New("prism: main branch cannot be rolled back or merged away")
+	// ErrHypothesisInMerge 合并被拒：源分支含未验证的假设实体。
+	ErrHypothesisInMerge = errors.New("prism: merge rejected: source branch contains unverified hypothesis entities")
+	// ErrInvalidDraft 实体草稿不合法。
+	ErrInvalidDraft = errors.New("prism: invalid entity draft")
+)
+
+// Clock 是统一时间源（M2 §8：所有写入走统一时间源，禁止应用层自行生成
+// 时间戳）。测试注入固定时钟以获得确定性结果。
+type Clock func() time.Time
+
+// Store 是单一属性图（心智地图）。
 //
-// 版本模型：每个 entity_id 挂一条**不可变版本链**（append-only）；
-// "当前版本" = 链尾 valid_to 为空的版本。写入路径只有 Ingest。
+// 并发模型：写路径以实例锁串行（保证版本号推进与 valid_to 翻转原子），
+// 读路径共用同一 *sql.DB 连接池。
 type Store struct {
-	mu         sync.RWMutex
-	clock      *Clock
-	spectrums  map[string]bool              // spectrum_id → 已摄入（幂等）
-	versions   map[string][]entityVersion   // entity_id → 版本链（按时间序）
-	provenance map[string][]provRec         // entity_id → 全部来源
-	relations  map[string][]relationVersion // relation_id → 版本链
-	branches   map[string]branchRec         // branch_id → 元信息
-	branchOps  map[string][]branchOp        // branch_id → 该分支的全部写入（回滚用）
-	conflicts  map[string][]Conflict        // entity_id → 冲突记录
-	openBranch []string                     // OPEN 状态分支（限流用）
+	mu    sync.Mutex
+	db    *sql.DB
+	clock Clock
+	// sessionID 用于按会话分区（M2 §8 风险缓解：图规模按会话隔离）。
+	sessionID string
 }
 
-type entityVersion struct {
-	attrs        map[string]string
-	kind         alethv1.EntityKind
-	validFrom    time.Time
-	validTo      *time.Time
-	version      int
-	confidence   float64
-	isHypothesis bool
-	branchID     string
+// Options 构造选项。
+type Options struct {
+	// DSN 是 SQLite 数据源。":memory:" 用于测试。
+	DSN string
+	// SessionID 会话标识（多会话分区用）。
+	SessionID string
+	// Clock 时间源。nil 时用 time.Now。
+	Clock Clock
 }
 
-type relationVersion struct {
-	from, to  string
-	relType   string
-	validFrom time.Time
-	validTo   *time.Time
-}
-
-type branchRec struct {
-	parent    string
-	createdAt time.Time
-	status    string // OPEN / MERGED / ROLLED_BACK
-}
-
-type branchOp struct {
-	entityID string
-	at       time.Time
-}
-
-// NewStore 建立空地图（main 分支隐式存在）。
-func NewStore(clock *Clock) *Store {
-	return &Store{
-		clock:      clock,
-		spectrums:  make(map[string]bool),
-		versions:   make(map[string][]entityVersion),
-		provenance: make(map[string][]provRec),
-		relations:  make(map[string][]relationVersion),
-		branches:   map[string]branchRec{"main": {parent: "", createdAt: clock.Now(), status: "OPEN"}},
-		branchOps:  make(map[string][]branchOp),
-		conflicts:  make(map[string][]Conflict),
+// Open 打开/建立心智地图。
+func Open(opts Options) (*Store, error) {
+	if opts.DSN == "" {
+		return nil, errors.New("prism: DSN is required")
 	}
+	db, err := sql.Open("sqlite", opts.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("prism: open %q: %w", opts.DSN, err)
+	}
+	// 单写者模型：SQLite 的并发写会串行化，显式限制连接数避免
+	// "database is locked" 抖动。
+	db.SetMaxOpenConns(1)
+
+	clock := opts.Clock
+	if clock == nil {
+		clock = time.Now
+	}
+	s := &Store{db: db, clock: clock, sessionID: opts.SessionID}
+	if err := s.migrate(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
-// ---- 分支管理（M2 §4.5）----
+// Close 释放连接。
+func (s *Store) Close() error { return s.db.Close() }
 
-// CreateBranch 创建假设分支。超限拒绝（M2 §8：默认并发 8）。
-func (s *Store) CreateBranch(branchID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, dup := s.branches[branchID]; dup {
-		return fmt.Errorf("branch %q already exists", branchID)
+// migrate 建立 schema（幂等）。
+//
+// 表结构对应 M2 §4.1 的存储模型：entity / relation / provenance / branch /
+// archive_node。**版本化行**：同一 entity_id 的每个版本是一行，
+// valid_to IS NULL 表示当前有效。
+func (s *Store) migrate() error {
+	stmts := []string{
+		`PRAGMA journal_mode=WAL`,
+		`PRAGMA foreign_keys=ON`,
+		`PRAGMA trusted_schema=OFF`,
+		`CREATE TABLE IF NOT EXISTS graph_meta (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`,
+		// entity：一行 = 一个版本。valid_to IS NULL → 当前有效版本。
+		`CREATE TABLE IF NOT EXISTS entity (
+			row_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_id   TEXT NOT NULL,
+			kind        INTEGER NOT NULL,
+			attrs       TEXT NOT NULL,        -- JSON（确定性序列化）
+			valid_from  INTEGER NOT NULL,     -- UnixNano（统一时间源）
+			valid_to    INTEGER,              -- NULL = 当前有效
+			version     INTEGER NOT NULL,
+			confidence  REAL NOT NULL,
+			is_hypothesis INTEGER NOT NULL DEFAULT 0,
+			branch_id   TEXT NOT NULL,
+			session_id  TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_current
+			ON entity(entity_id, branch_id, valid_to)`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_kind
+			ON entity(kind, branch_id, valid_to)`,
+		// provenance：多源写入的审计要求（每个版本可追溯到具体来源）。
+		`CREATE TABLE IF NOT EXISTS provenance (
+			row_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_id   TEXT NOT NULL,
+			version     INTEGER NOT NULL,
+			branch_id   TEXT NOT NULL,
+			source_kind INTEGER NOT NULL,
+			evidence_id TEXT NOT NULL DEFAULT '',
+			exec_id     TEXT NOT NULL DEFAULT '',
+			observed_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_prov_entity
+			ON provenance(entity_id, branch_id, version)`,
+		// relation：关系也带时间版本（Relation.valid_from 契约字段）。
+		`CREATE TABLE IF NOT EXISTS relation (
+			row_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+			relation_id TEXT NOT NULL,
+			from_entity TEXT NOT NULL,
+			to_entity   TEXT NOT NULL,
+			type        INTEGER NOT NULL,
+			attrs       TEXT NOT NULL,
+			confidence  REAL NOT NULL,
+			evidence_id TEXT NOT NULL DEFAULT '',
+			valid_from  INTEGER NOT NULL,
+			valid_to    INTEGER,
+			branch_id   TEXT NOT NULL,
+			session_id  TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_relation_from
+			ON relation(from_entity, branch_id, valid_to)`,
+		`CREATE INDEX IF NOT EXISTS idx_relation_to
+			ON relation(to_entity, branch_id, valid_to)`,
+		// branch：假设分支。
+		`CREATE TABLE IF NOT EXISTS branch (
+			branch_id        TEXT PRIMARY KEY,
+			branch_name      TEXT NOT NULL,
+			parent_branch_id TEXT NOT NULL DEFAULT '',
+			rationale        TEXT NOT NULL DEFAULT '',
+			created_at       INTEGER NOT NULL,
+			status           TEXT NOT NULL DEFAULT 'open',
+			session_id       TEXT NOT NULL DEFAULT ''
+		)`,
+		// ingest_log：幂等保证（相同 spectrum_id 重复 Ingest 无副作用）。
+		`CREATE TABLE IF NOT EXISTS ingest_log (
+			spectrum_id TEXT PRIMARY KEY,
+			ingested_at INTEGER NOT NULL,
+			entity_count INTEGER NOT NULL
+		)`,
+		// archive_node：归档聚合节点（R6，可下钻）。
+		`CREATE TABLE IF NOT EXISTS archive_node (
+			archive_id   TEXT PRIMARY KEY,
+			kind         INTEGER NOT NULL,
+			aggregate    TEXT NOT NULL,   -- JSON：计数/时间范围/属性值域
+			downlinks    TEXT NOT NULL,   -- JSON 数组：归档前的 entity_id
+			created_at   INTEGER NOT NULL,
+			branch_id    TEXT NOT NULL
+		)`,
 	}
-	open := 0
-	for _, id := range s.openBranch {
-		if s.branches[id].status == "OPEN" && id != "main" {
-			open++
+	for _, stmt := range stmts {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return fmt.Errorf("prism: migrate: %w", err)
 		}
 	}
-	if open >= MaxConcurrentBranches {
-		return fmt.Errorf("concurrent branch limit (%d) reached; refusing to create %q (M2 §8)", MaxConcurrentBranches, branchID)
+	// schema 版本校验（与账本同构的 fail-closed）。
+	var got string
+	err := s.db.QueryRow(`SELECT value FROM graph_meta WHERE key='schema_version'`).Scan(&got)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if _, err := s.db.Exec(
+			`INSERT INTO graph_meta(key, value) VALUES ('schema_version', ?)`,
+			fmt.Sprint(schemaVersion)); err != nil {
+			return fmt.Errorf("prism: init schema_version: %w", err)
+		}
+	case err != nil:
+		return fmt.Errorf("prism: read schema_version: %w", err)
+	case got != fmt.Sprint(schemaVersion):
+		return fmt.Errorf(
+			"prism: graph schema version %s != supported %d; refusing to open (fail-closed)",
+			got, schemaVersion)
 	}
-	s.branches[branchID] = branchRec{parent: "main", createdAt: s.clock.Now(), status: "OPEN"}
-	s.openBranch = append(s.openBranch, branchID)
+	// 主分支必须存在（回放/投影都以它为根）。
+	if _, err := s.db.Exec(
+		`INSERT OR IGNORE INTO branch(branch_id, branch_name, parent_branch_id, rationale, created_at, status, session_id)
+		 VALUES (?, 'main', '', 'root branch', ?, 'open', ?)`,
+		MainBranchID, s.clock().UnixNano(), s.sessionID); err != nil {
+		return fmt.Errorf("prism: init main branch: %w", err)
+	}
 	return nil
 }
 
-// RollbackBranch 把分支内全部写入的实体置 valid_to（软删除）。
-// 契约（M2 §4.5）：回滚后 SnapshotAt(分支前时刻) 与「从未创建分支」一致。
-func (s *Store) RollbackBranch(branchID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	rec, ok := s.branches[branchID]
-	if !ok {
-		return fmt.Errorf("branch %q not found", branchID)
+// normalizeBranch 把契约里的空 branch_id 归一化为主分支。
+func normalizeBranch(id string) string {
+	if strings.TrimSpace(id) == "" {
+		return MainBranchID
 	}
-	if rec.status != "OPEN" {
-		return fmt.Errorf("branch %q status is %s; only OPEN branches can be rolled back", branchID, rec.status)
-	}
-	now := s.clock.Now()
-	for _, op := range s.branchOps[branchID] {
-		chain := s.versions[op.entityID]
-		for i := range chain {
-			if chain[i].branchID == branchID && chain[i].validTo == nil {
-				t := now
-				chain[i].validTo = &t
-			}
-		}
-		s.versions[op.entityID] = chain
-	}
-	rec.status = "ROLLED_BACK"
-	s.branches[branchID] = rec
-	return nil
+	return id
 }
 
-// MergeBranch 把分支内实体转正（is_hypothesis 清除）。
-// 仅当分支内实体通过 M4 闸门（非 Hypothesis）才允许合并（M2 §4.5）。
-func (s *Store) MergeBranch(branchID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	rec, ok := s.branches[branchID]
-	if !ok {
-		return fmt.Errorf("branch %q not found", branchID)
+// canonicalAttrs 确定性序列化属性表。
+//
+// 为什么不用 json.Marshal(map)：Go 的 map 迭代顺序随机，
+// 序列化结果不稳定 —— 会让本应相同的实体产生不同 hash，破坏
+// 回放与回滚的字节级一致性（M2 §7 DoD③ 与 P-5 确定性要求）。
+func canonicalAttrs(m map[string]string) string {
+	if len(m) == 0 {
+		return "{}"
 	}
-	if rec.status != "OPEN" {
-		return fmt.Errorf("branch %q status is %s; only OPEN branches can be merged", branchID, rec.status)
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
-	// 逐实体检查：分支内仍处于 HYPOTHESIS 的实体阻止合并。
-	for _, op := range s.branchOps[branchID] {
-		chain := s.versions[op.entityID]
-		if len(chain) == 0 {
-			continue
-		}
-		tail := chain[len(chain)-1]
-		if tail.branchID == branchID && tail.validTo == nil && tail.isHypothesis {
-			return fmt.Errorf("branch %q contains unverified hypothesis entity %q; merge refused (M2 §4.5)", branchID, op.entityID)
-		}
-	}
-	for _, op := range s.branchOps[branchID] {
-		chain := s.versions[op.entityID]
-		for i := range chain {
-			if chain[i].branchID == branchID {
-				chain[i].isHypothesis = false
-				chain[i].branchID = "main"
-			}
-		}
-		s.versions[op.entityID] = chain
-	}
-	rec.status = "MERGED"
-	s.branches[branchID] = rec
-	return nil
-}
-
-// ---- 查询 ----
-
-// SnapshotAt 返回 T 时刻的认知状态（M2 §4.4 回放契约：
-// 与「当时实际认知状态」字节级一致 —— 一致性由测试锁定）。
-func (s *Store) SnapshotAt(t time.Time, branchID string) *Snapshot {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	snap := &Snapshot{At: t, Entities: map[string]EntityView{}}
-	for id, chain := range s.versions {
-		// 版本链按时间序 append —— 取**最后一个**在 T 时刻有效的版本
-		//（即当时的最新认知）。第一个命中是 v1，不是当前版本：
-		// 该 bug 曾被回放保真测试漏过（live/replay 同错则指纹仍相等），
-		// 由多源冲突测试抓出（M2 §4.4 的「回放到 T」语义 = T 时刻的最新版本）。
-		for _, v := range chain {
-			if activeAt(v, t, branchID) {
-				snap.Entities[id] = EntityView{
-					Kind: v.kind, Attrs: copyAttrs(v.attrs),
-					Confidence: v.confidence, IsHypothesis: v.isHypothesis,
-					Version: v.version, BranchID: v.branchID,
-				}
-			}
-		}
-	}
-	return snap
-}
-
-// Snapshot 是某时刻的认知状态投影。
-type Snapshot struct {
-	At       time.Time
-	Entities map[string]EntityView
-}
-
-// EntityView 是快照中的实体只读视图。
-type EntityView struct {
-	Kind         alethv1.EntityKind
-	Attrs        map[string]string
-	Confidence   float64
-	IsHypothesis bool
-	Version      int
-	BranchID     string
-}
-
-// Fingerprint 是快照的确定性摘要（回放一致性对比用：字节级等价 ⇒ 指纹相等）。
-func (s *Snapshot) Fingerprint() string {
-	ids := make([]string, 0, len(s.Entities))
-	for id := range s.Entities {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
+	sort.Strings(keys)
 	var b strings.Builder
-	for _, id := range ids {
-		v := s.Entities[id]
-		keys := make([]string, 0, len(v.Attrs))
-		for k := range v.Attrs {
-			keys = append(keys, k)
+	b.WriteByte('{')
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(',')
 		}
-		sort.Strings(keys)
-		fmt.Fprintf(&b, "%s|%d|%s|v%d|hyp=%t|br=%s|conf=%.4f\n",
-			id, int(v.Kind), strings.Join(keys, ","), v.Version, v.IsHypothesis, v.BranchID, v.Confidence)
-		for _, k := range keys {
-			fmt.Fprintf(&b, "  %s=%s\n", k, v.Attrs[k])
-		}
+		kb, _ := json.Marshal(k)
+		vb, _ := json.Marshal(m[k])
+		b.Write(kb)
+		b.WriteByte(':')
+		b.Write(vb)
 	}
+	b.WriteByte('}')
 	return b.String()
 }
 
-func activeAt(v entityVersion, t time.Time, branchID string) bool {
-	if v.validFrom.After(t) {
-		return false
+// HashCanonical 计算实体的规范 hash（回放/回滚字节级对比用）。
+//
+// 覆盖参与"认知状态"的全部字段，**排除**内部 row_id（自增，与语义无关）。
+func HashCanonical(entities []*alethv1.Entity, relations []*alethv1.Relation) string {
+	h := sha256.New()
+	// 稳定排序：投影结果顺序不应影响状态 hash。
+	es := append([]*alethv1.Entity(nil), entities...)
+	sort.Slice(es, func(i, j int) bool {
+		if es[i].GetEntityId() != es[j].GetEntityId() {
+			return es[i].GetEntityId() < es[j].GetEntityId()
+		}
+		return es[i].GetVersion() < es[j].GetVersion()
+	})
+	for _, e := range es {
+		fmt.Fprintf(h, "E|%s|%d|%d|%s|%d|%d|%d|%.6f|%t|%s\n",
+			e.GetEntityId(), e.GetKind(), e.GetVersion(),
+			canonicalAttrs(e.GetAttributes()),
+			tsNano(e.GetValidFrom()), tsNano(e.GetValidTo()),
+			len(e.GetSources()), e.GetConfidence(), e.GetIsHypothesis(), e.GetBranchId())
+		for _, p := range e.GetSources() {
+			fmt.Fprintf(h, "P|%d|%s|%s|%d\n",
+				p.GetSourceKind(), p.GetEvidenceId(), p.GetExecId(), tsNano(p.GetObservedAt()))
+		}
 	}
-	if v.validTo != nil && !v.validTo.After(t) {
-		return false
+	rs := append([]*alethv1.Relation(nil), relations...)
+	sort.Slice(rs, func(i, j int) bool { return rs[i].GetRelationId() < rs[j].GetRelationId() })
+	for _, r := range rs {
+		fmt.Fprintf(h, "R|%s|%s|%s|%d|%s|%.6f|%s|%d\n",
+			r.GetRelationId(), r.GetFromEntity(), r.GetToEntity(), r.GetType(),
+			canonicalAttrs(r.GetAttributes()), r.GetConfidence(),
+			r.GetEvidenceId(), tsNano(r.GetValidFrom()))
 	}
-	// 分支可见性：main 快照不含未合并的假设分支实体；分支快照含
-	// main（分支前时刻的基线）+ 本分支写入。
-	if branchID == "main" {
-		return v.branchID == "main"
-	}
-	return v.branchID == branchID || v.branchID == "main"
+	return hex.EncodeToString(h.Sum(nil))
 }
 
-func copyAttrs(m map[string]string) map[string]string {
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
+// tsNano 把 proto Timestamp 转为 UnixNano（nil / 零值 → 0）。
+func tsNano(ts *timestamppb.Timestamp) int64 {
+	if ts == nil {
+		return 0
 	}
-	return out
+	return ts.AsTime().UnixNano()
+}
+
+// ctxErr 把 context 取消转为显式错误（不吞 —— P-4）。
+func ctxErr(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
 }

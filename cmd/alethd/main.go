@@ -29,16 +29,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/AperturePrism/aleth/core/aperture"
 	"github.com/AperturePrism/aleth/core/api/server"
 	"github.com/AperturePrism/aleth/core/checkpoint"
 	"github.com/AperturePrism/aleth/core/config"
 	"github.com/AperturePrism/aleth/core/focalplane"
 	"github.com/AperturePrism/aleth/core/gateway"
+	"github.com/AperturePrism/aleth/core/governor"
 	"github.com/AperturePrism/aleth/core/ingest"
 	"github.com/AperturePrism/aleth/core/ingest/httpx"
 	"github.com/AperturePrism/aleth/core/ingest/nmap"
 	"github.com/AperturePrism/aleth/core/ingest/nuclei"
 	"github.com/AperturePrism/aleth/core/log"
+	"github.com/AperturePrism/aleth/core/orchestrate"
+	"github.com/AperturePrism/aleth/core/prism"
 	"github.com/AperturePrism/aleth/core/scopekernel"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -49,7 +53,7 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-// 退出码约定（08 §1.3）。
+// exitOK 等退出码约定（08 §1.3）。
 //
 // 3 = 授权校验失败，4 = 范围越界熔断。这两个码是给 CI 与监控识别的，
 // 不能和普通错误混在一起。
@@ -60,6 +64,14 @@ const (
 	exitAuthFailed     = 3
 	exitScopeViolation = 4
 )
+
+// grpcWebPathPrefix 是 gRPC-Web 桥接在 HTTP 端口上的挂载前缀。
+//
+// 必须与 web/src/lib/api.ts 的 GRPC_ENDPOINT（ws://<host>/grpc）
+// 逐字符一致 —— 两侧不一致会让前端所有 RPC 表现为
+// "Transport error: Failed to fetch"，而 WebUI 恰恰是本项目主界面
+// （06 §3.3）。改动此处时同步改 api.ts，反之亦然。
+const grpcWebPathPrefix = "/grpc/"
 
 func main() {
 	if err := rootCmd().Execute(); err != nil {
@@ -234,6 +246,20 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	// Sandbox 依赖仍缺位（I3 清单未含容器编排）—— Execute 在该场景显式
 	// UPSTREAM_UNAVAILABLE（I1 语义），不存在绕过校验的执行路径。
 	if cfg.Authorization.RoePath != "" {
+		// ★ 完整凭证校验（08 §1.3）：targets 段 + authorization 段时间窗。
+		//
+		// 此前只调 ParseScopeFile，而它**看不到 authorization 段** ——
+		// 于是 roe.schema.json 里明确指派给 Scope Kernel 的三条约束
+		// （valid_until > valid_from / 跨度 ≤ 90 天 / 当前在窗口内）
+		// **一条都没被强制**。后果：一份**已过期**的授权凭证会被接受。
+		//
+		// 授权有效期是"本次交战被允许的时间窗"，接受过期凭证等于让
+		// 授权无限续期 —— 直接违背 08 §1.1 的"无凭证不启动"。
+		if err := scopekernel.ValidateROEFile(
+			cfg.Authorization.RoePath, time.Now().UTC()); err != nil {
+			logger.Error("authorization credential rejected", zapErr(err))
+			return errAuth{err: err}
+		}
 		scope, err := scopekernel.ParseScopeFile(cfg.Authorization.RoePath)
 		if err != nil {
 			logger.Error("cannot parse roe scope", zapErr(err))
@@ -268,18 +294,137 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 			return errRuntime{err: err}
 		}
 		registry.Ledger = proxy
-		logger.Info("ledger proxy wired", zap.String("focalplane_addr", cfg.Focalplane.Addr))
+
+		// I7 的 TerminationService 同样在 Python focalplane
+		// （`aletheia/focalplane/arbiter.py`，51 组伪达成用例）。
+		//
+		// 为什么不在 Go 侧重写：终止仲裁是红线之一（09 §R6），
+		// 两套实现必然漂移，而漂移的那一侧就是绕过路径。
+		// 因此这里**只转发**。
+		termProxy, err := focalplane.NewTerminationProxy(cfg.Focalplane.Addr)
+		if err != nil {
+			logger.Error("cannot wire termination proxy", zapErr(err))
+			return errRuntime{err: err}
+		}
+		registry.Termination = termProxy
+		logger.Info("ledger + termination proxies wired",
+			zap.String("focalplane_addr", cfg.Focalplane.Addr))
 	} else {
 		logger.Info("focalplane not configured; LedgerService stays UNIMPLEMENTED (I2)")
 	}
 
+	// I4（04 §4）：M2 心智地图 —— 系统的唯一真源。
+	// 打开失败即拒绝启动（fail-closed）：图不可用的会话无法产出可追溯结论，
+	// 与"证据存不进去的摄入层不能上线"同一判据。
+	graphStore, err := prism.Open(prism.Options{
+		DSN:       cfg.Storage.MapFile,
+		SessionID: sessionIDFor(cfg),
+	})
+	if err != nil {
+		logger.Error("cannot open mind map", zapErr(err))
+		return errRuntime{err: err}
+	}
+	defer func() { _ = graphStore.Close() }()
+	registry.Prism = prism.NewServer(graphStore)
+	logger.Info("prism (mind map) wired", zap.String("map_file", cfg.Storage.MapFile))
+
+	// I5（04 §4）：M3 光圈控制 ★核心创新 —— 记忆在图里，上下文只是焦点的投影。
+	//
+	// 装配失败即拒绝启动：M3 是 L2 唯一的上下文来源（05 §4.1），
+	// 它不可用时上层无法装配任何有依据的上下文，服务不应假装可用。
+	assembler, err := aperture.New(aperture.Options{
+		Graph:     prismGraphAdapter{store: graphStore},
+		Conflicts: prismConflictAdapter{store: graphStore},
+	})
+	if err != nil {
+		logger.Error("cannot assemble aperture controller", zapErr(err))
+		return errRuntime{err: err}
+	}
+	registry.Aperture = aperture.NewServer(assembler)
+	logger.Info("aperture (M3) wired",
+		zap.String("default_stop", aperture.ProfileFor(aperture.DefaultStop).Label))
+
+	// 会话级预算总额（config 的 budget.session_tokens）。
+	//
+	// 在 Orchestrator 与 Governor 装配**之前**声明：两者共用同一个值 ——
+	// 检查点记录的预算状态必须与服务端认可的预算同源，
+	// 否则"检查点说还剩一半、Governor 说已熔断"这类矛盾无法排查。
+	sessionBudget := cfg.Budget.SessionTokens
+
+	// I6（04 §4）：M5 编排层 —— 规划与调度。
+	//
+	// 契约硬约束（05 §6.2）：NextReady 不得调用 LLM。本包不引入任何
+	// LLM 客户端，且有静态检查测试锁死这一点（orchestrate_test.go 的
+	// TestNoLLMClientInPackage）—— 它是"设计上不允许"而非"暂时不做"。
+	//
+	// 检查点需要 M2 的图版本与 M6 的预算快照（05 §6.2 的
+	// CheckpointInfo.graph_version / budget_snapshot_hash）。
+	// I6 交付时这两个字段是空的；本次接上适配器。
+	registry.Orchestrator = orchestrate.NewServerWithSnapshots(
+		newCheckpointSnapshotAdapter(graphStore,
+			func(sessionID string) (uint64, uint64, bool, bool) {
+				return budgetStateFromGovernor(sessionID, sessionBudget, 0, false)
+			}))
+	logger.Info("orchestrator (M5) wired",
+		zap.String("next_ready", "deterministic: topological sort + resource constraints"),
+		zap.Bool("checkpoint_snapshots_wired", graphStore != nil))
+
+	// I6 补充：GatewayService 的 gRPC 接线。
+	//
+	// `core/gateway` 在 I3 就实现并测试了（确定性 token 映射 / 回注 /
+	// 五类出站扫描），但此前只在**进程内**被 Ingest 消费
+	// （`gatewayAdapter`），从未注册为 gRPC 服务 ——
+	// `registry.Gateway` 一直是 unimplementedGateway。
+	//
+	// 这带来两个实际缺口：
+	//   1. 前端与其他服务无法查询"某段文本会被脱敏成什么"；
+	//   2. 06 的「实时执行流」无法展示脱敏过程。
+	//
+	// 注册后，会话隔离由 GatewayService 自己按 session_id 管理
+	// （与 Ingest 内部那个实例**共享同一份语义**但各自独立的映射表 ——
+	// 因为契约没有"跨调用共享映射表"的表达，而共享会让两个入口的
+	// token 编号互相干扰）。
+	registry.Gateway = gateway.NewServer()
+	logger.Info("gateway (privacy) service wired",
+		zap.String("note", "tokenize/detokenize/scan_outbound over gRPC"))
+
+	// I6（04 §4）：CostGovernor 的 gRPC 接线（补齐 I3 遗留）。
+	//
+	// I3 已实现并测试 core/governor（预扣制 + 双阈值熔断），但当时未接
+	// gRPC —— registry.Governor 一直是 unimplementedGovernor。04 §I6 的
+	// 「成本与预算面板」（06 页面 10）需要它才能显示实时消耗。
+	//
+	// 预算来源即上面声明的 sessionBudget。未配置时（0）
+	// GovernorService 的 Reserve 会 fail-closed 拒绝执行 —— 与
+	// 「无预算的会话是一个永不熔断的熔断器」同一判据（M6 §6）。
+	registry.Governor = governor.NewServer(func(string) uint64 { return sessionBudget })
+	if sessionBudget == 0 {
+		logger.Warn("no session token budget configured (budget.session_tokens=0); " +
+			"GovernorService will refuse all Reserve calls (fail-closed, M6 §6)")
+	} else {
+		logger.Info("governor (M6 cost) wired",
+			zap.Uint64("session_tokens", sessionBudget))
+	}
+
+	// OTel 接线（M6 T6.2）——默认零遥测：装 noop provider，
+	// span 会被创建与传递但没有 exporter 接收（07/06 的"默认零遥测"要求）。
+	tracingMode := installTracing(cfg.Telemetry.Enabled)
+	logger.Info("observability (OTel) wired", zap.String("mode", tracingMode))
+
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
+			// OTel span 拦截器（M6 T6.2）：为每个调用创建 span，
+			// 承载 §8.2 的三条可追溯链路。默认 noop provider ——
+			// span 会被创建与传递，但无 exporter 接收（零遥测，D18）。
+			obsUnaryInterceptor(),
 			// 观测拦截器：把 request 关联到 trace（modules/M6 §8.1）。
 			unaryObservabilityInterceptor(logger),
 			// 脱敏拦截器（I0 版）：确保出站日志不含真实敏感值。
 			// I3 换成真正的 Privacy Gateway 校验（modules/M6 §4.2）。
 			unaryRedactionInterceptor(logger),
+		),
+		grpc.ChainStreamInterceptor(
+			obsStreamInterceptor(),
 		),
 	)
 	registry.RegisterAll(grpcServer)
@@ -309,8 +454,13 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// HTTP mux：/grpc. 给 WebSocket/HTTP+JSON 调试通道留着。
+	// HTTP mux：/grpc 走 gRPC-Web 桥接（WebUI 主界面的 RPC 通道），
+	// 其余路径回落 WebUI 静态资源。
+	//
+	// 请求分流的关键顺序：先注册更具体的 /grpc 前缀，否则 "/" 的
+	// SPA handler 会把 gRPC-Web 请求当成前端路由吃掉。
 	mux := http.NewServeMux()
+	mux.Handle(grpcWebPathPrefix, newGRPCWebHandler(grpcServer))
 	mux.Handle("/", webHandler)
 
 	httpServer := &http.Server{
@@ -319,6 +469,21 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 	}
 
 	errCh := make(chan error, 2)
+
+	// I3：gRPC 服务独立端口 Serve —— I0 骨架里 grpcServer 从未 Serve
+	//（唯一 listener 被 HTTP/WebUI 占用），gRPC 网络入口实际不存在，
+	// 由 stability harness 真实运行时暴露。与 HTTP/WebUI 分端口零歧义。
+	grpcLis, err := net.Listen("tcp", cfg.GRPCListenAddr())
+	if err != nil {
+		logger.Error("cannot listen grpc", zap.String("addr", cfg.GRPCListenAddr()), zapErr(err))
+		return errRuntime{err: err}
+	}
+	go func() {
+		logger.Info("grpc server listening", zap.String("addr", cfg.GRPCListenAddr()))
+		if err := grpcServer.Serve(grpcLis); err != nil {
+			errCh <- err
+		}
+	}()
 
 	go func() {
 		logger.Info("http server listening", zap.String("addr", lis.Addr().String()))

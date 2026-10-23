@@ -1,0 +1,285 @@
+/* 成本与预算面板（06 §6.1 页面 10）的样式。
+ *
+ * 视觉重点：**两条硬阈值线必须可见**（80% 收窄 / 100% 熔断）。
+ * 预算是成本约束本身；只显示"已用 60%"而不显示"还有多少才碰到硬约束"
+ * 会让使用者无法判断风险。因此 gauge 上直接画出阈值线，并单列
+ * 「剩余余量」区块给出确切数字。 */
+
+.cost-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.cost-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.cost-field input {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input, transparent);
+  color: inherit;
+  font-size: 13px;
+  min-width: 160px;
+}
+
+/* ---- 熔断横幅：最高优先级信息 ---- */
+
+.cost-banner {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 11px 15px;
+  border-radius: 5px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.cost-banner-open {
+  border-left: 4px solid #d33a2c;
+  background: #d33a2c11;
+  color: #d33a2c;
+}
+
+.cost-banner-narrow {
+  border-left: 4px solid #d97706;
+  background: #d9770611;
+  color: #d97706;
+}
+
+/* ---- 主指标 ---- */
+
+.cost-summary {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.cost-metric {
+  flex: 1 1 150px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.cost-metric-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.cost-metric-value {
+  font-size: 21px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+}
+
+.cost-metric-unit {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+
+.cost-metric-warn {
+  border-color: #d97706;
+}
+
+.cost-metric-warn .cost-metric-value {
+  color: #d97706;
+}
+
+.cost-metric-danger {
+  border-color: #d33a2c;
+}
+
+.cost-metric-danger .cost-metric-value {
+  color: #d33a2c;
+}
+
+/* ---- 阈值线 gauge ---- */
+
+.cost-gauge {
+  margin-bottom: 22px;
+}
+
+.cost-gauge-track {
+  position: relative;
+  height: 22px;
+  border-radius: 4px;
+  background: var(--border-subtle, #8882);
+  overflow: visible;
+}
+
+.cost-gauge-fill {
+  height: 100%;
+  border-radius: 4px 0 0 4px;
+  background: linear-gradient(90deg, #2f6feb, #7c5cff);
+  transition: width 0.25s ease;
+}
+
+.cost-gauge-fill-narrow {
+  background: linear-gradient(90deg, #2f6feb, #d97706);
+}
+
+.cost-gauge-fill-open {
+  background: linear-gradient(90deg, #d97706, #d33a2c);
+}
+
+/* 阈值线画在轨道上（不随填充变化）—— 它们是**硬约束**，不是数据点 */
+.cost-threshold {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+}
+
+.cost-threshold span {
+  position: absolute;
+  top: -17px;
+  font-size: 10px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  color: var(--text-dim);
+}
+
+.cost-threshold-narrow {
+  background: #d97706;
+}
+
+.cost-threshold-narrow span {
+  color: #d97706;
+}
+
+.cost-threshold-open {
+  background: #d33a2c;
+}
+
+.cost-threshold-open span {
+  color: #d33a2c;
+}
+
+.cost-gauge-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* ---- 剩余余量 ---- */
+
+.cost-headroom {
+  padding: 12px 16px;
+  border-left: 3px solid #2f6feb;
+  background: #2f6feb08;
+  border-radius: 0 5px 5px 0;
+  margin-bottom: 22px;
+}
+
+.cost-headroom h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin: 0 0 8px;
+}
+
+.cost-headroom ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.cost-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ---- 区块 ---- */
+
+.cost-block {
+  margin-bottom: 22px;
+}
+
+.cost-block h2 {
+  font-size: 13px;
+  margin: 0 0 9px;
+}
+
+.cost-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0 0 10px;
+  line-height: 1.7;
+}
+
+.cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.cost-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cost-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle, #8882);
+}
+
+/* 高亮当前所处的区间 —— 表格本身即状态指示器 */
+.cost-row-active {
+  background: #2f6feb0d;
+  font-weight: 600;
+}
+
+.cost-row-danger {
+  background: #d33a2c11;
+  color: #d33a2c;
+}
+
+.cost-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.cost-dl dt {
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.cost-dl dd {
+  margin: 0;
+}
+
+.cost-footnote {
+  padding: 9px 12px;
+  border-left: 3px solid #6b7280;
+  background: #6b72800d;
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 20px;
+}

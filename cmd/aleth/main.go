@@ -28,6 +28,16 @@ var version = "dev"
 
 func main() {
 	if err := rootCmd().Execute(); err != nil {
+		// 凭证拒绝用**专用退出码 3**（docs/08 §1.3），而不是通用的 1。
+		//
+		// 为什么要区分：CI 与监控需要分辨"凭证有问题"（修配置）
+		// 与"程序出错"（查 bug）。`08` §1.3 的流程图里四种拒绝情形
+		// （未提供 / 不可读 / 过期 / 字段不全）全部指向退出码 3。
+		//
+		// cobra 已经打印了错误，这里只决定退出码。
+		if _, ok := asCredentialError(err); ok {
+			os.Exit(exitCredentialRejected)
+		}
 		os.Exit(1)
 	}
 }
@@ -57,6 +67,11 @@ func rootCmd() *cobra.Command {
 		daemonCmd(),
 		statusCmd(),
 		versionCmd(),
+		// I11（04 §4 前端交付物）：MCP 接口（06 §3.4）。
+		mcpCmd(),
+		// 06 §3.2 职责⑤：报告导出。此前**该子命令不存在** ——
+		// 而"导出证据供外部审计"正是本项目第一原则对外的接口。
+		exportCmd(),
 	)
 	return cmd
 }
@@ -97,12 +112,62 @@ alethd 承载全部业务逻辑；本命令只负责它的生命周期。
 		RunE:         runDaemonStop,
 	}
 
-	cmd.AddCommand(start, stop)
+	// 职责①（06 §3.2：「启动/停止/**重启** daemon」）——
+	// restart 此前缺失。它不是简单的 stop+start 语法糖：
+	// 必须**确认旧进程真的退出**再启动新的，否则新进程会撞上端口占用，
+	// 而用户看到的是"重启失败"而非"旧进程没停下来"。
+	restart := &cobra.Command{
+		Use:   "restart",
+		Short: "重启守护进程",
+		Long: `重启守护进程（先停再起）。
+
+与 "stop && start" 的区别：本命令会**等待旧进程真正退出**后再启动新的。
+否则新进程会因端口被占用而启动失败 —— 那种错误信息会误导用户去查
+端口冲突，而真实原因是旧进程还没停干净。`,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			auth, _ := cmd.Flags().GetString("authorization")
+			return runDaemonRestart(cmd, auth)
+		},
+	}
+	restart.Flags().String("authorization", "",
+		"授权凭证文件路径（roe.yaml）。必填 —— 重启同样是启动。")
+	restart.Flags().Bool("foreground", false, "前台运行（默认后台守护）")
+
+	cmd.AddCommand(start, stop, restart)
 	return cmd
 }
 
+// runDaemonRestart 停掉现有 daemon（若有）后重新启动。
+func runDaemonRestart(cmd *cobra.Command, authPath string) error {
+	// 08 §1.1：无凭证不启动 —— 重启也是启动，因此同一校验。
+	// **先校验再停止**：若凭证缺失就拒绝，不能先把正在工作的
+	// daemon 停掉再报错（那会把"拒绝启动"变成"服务被中断"）。
+	// 校验必须在**停止现有 daemon 之前**：顺序反了会把"拒绝启动"
+	// 变成"服务被中断" —— 用户拿不到凭证时，却把正在工作的服务停掉了。
+	//
+	// 用与 start 相同的完整校验（08 §1.3）。
+	if err := validateAuthorization(authPath); err != nil {
+		return fmt.Errorf(
+			"%w\n  注意：本命令在停止现有 daemon **之前**就校验凭证，"+
+				"\n  以免把一个运行中的服务停掉之后才报错。", err)
+	}
+
+	// 只有确认在运行才停 —— 没在运行时 restart 等价于 start。
+	if pid, ok := readDaemonPID(); ok && processAlive(pid) {
+		if err := stopProcess(pid); err != nil {
+			// 停不掉就**不启动**：两个实例同时跑会争用同一份
+			// SQLite 与端口，后果比"重启失败"严重得多。
+			return fmt.Errorf("重启中止：无法停止现有 daemon（pid %d）：%w", pid, err)
+		}
+		_ = os.Remove(daemonPIDFile())
+		fmt.Fprintf(cmd.OutOrStdout(), "stopped old daemon (pid %d)\n", pid)
+	}
+	return runDaemonStart(cmd, authPath)
+}
+
 func statusCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "查询 daemon 与会话状态（脚本可解析）",
 		Long: `查询 daemon 与会话状态。
@@ -112,9 +177,18 @@ func statusCmd() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			format, _ := cmd.Flags().GetString("format")
-			return runStatus(format)
+			return runStatus(cmd, format)
 		},
 	}
+	// ★ 这个 flag 曾经**只被读取、从未被注册** ——
+	// `aleth status --format json` 报 "unknown flag"，而帮助文本却在宣传它。
+	//
+	// 后果不只是"少个选项"：`06 §3.2` 要求 CLI 承担
+	// 「CI 集成（无界面模式）」，而机器可读输出正是那条路径的全部 ——
+	// 它一直是断的，且因为没人跑过而无人发现。
+	cmd.Flags().String("format", "",
+		"输出格式：json（机器可读）或留空（人类可读）")
+	return cmd
 }
 
 func versionCmd() *cobra.Command {

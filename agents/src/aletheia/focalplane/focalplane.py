@@ -28,7 +28,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from aletheia.focalplane import ids, patterns
+from aletheia.focalplane import arbiter, ids, patterns
 from aletheia.focalplane.ledger import Ledger
 from aletheia.gen.aleth.v1 import aletheia_pb2 as pb
 
@@ -97,6 +97,71 @@ class FocalPlane:
         self._lock = threading.Lock()
         # 状态机表与账本共用同一 SQLite 文件（同库不同表；互不写对方列）。
         self._state = _StateStore(ledger.db_path)
+        # I7：终止仲裁器（M4 §4.5）。scope 判定由调用方注入 —— M4 不做
+        # 范围裁决（M6 的职责），这里只消费"目标是否在授权范围内"的结论。
+        self._arbiter = arbiter.TerminationArbiter(
+            scope_contains=self._scope_check,
+            evidence_ids_exist=self._evidence_exists,
+            gate_passed_for=self._evidence_gate_passed,
+        )
+
+    # ------------------------------------------------------------------
+    # I7 · 终止仲裁（M4 §4.5，T4.10）
+    # ------------------------------------------------------------------
+
+    def set_scope_checker(self, fn: Callable[[str], bool]) -> None:
+        """注入 scope 判定（M6 ScopeKernel 的结论；M4 不自行裁决范围）。
+
+        未注入时默认**全部拒绝**（fail-closed）—— 归属未确认是 AIxCC
+        的重罚项（错误关联 -7 分），宁可拒绝也不能放行一个归属存疑的终止。
+        """
+        self._scope_checker = fn
+        self._arbiter = arbiter.TerminationArbiter(
+            scope_contains=self._scope_check,
+            evidence_ids_exist=self._evidence_exists,
+            gate_passed_for=self._evidence_gate_passed,
+        )
+
+    def request_termination(self, request: pb.TerminationRequest) -> pb.TerminationDecision:
+        """处理终止请求（**系统唯一的会话终止入口**，09 §R6）。
+
+        agent 无权自行终止 —— 本方法是它提出请求的唯一通路，
+        结论由 :class:`arbiter.TerminationArbiter` 独立给出：
+        四道结构化校验全部通过才批准，**不采信 agent 的任何自我评估**。
+
+        这是消除 D3（发现随机哈希就宣告胜利并终止会话）的直接手段。
+        """
+        verdict = self._arbiter.arbitrate(request)
+        return verdict.to_proto()
+
+    def _scope_check(self, target: str) -> bool:
+        """scope 判定（未注入 checker 时 fail-closed）。"""
+        fn = getattr(self, "_scope_checker", None)
+        if fn is None:
+            return False
+        return bool(fn(target))
+
+    def _evidence_exists(self, evidence_id: str) -> bool:
+        """证据是否真实存在于账本（G-2 的"每个 ID 在账本中真实存在"）。"""
+        return self._ledger.get(evidence_id) is not None
+
+    def _evidence_gate_passed(self, evidence_id: str) -> bool:
+        """该证据是否已通过全部四道闸门。
+
+        判定口径（M4 §4.5 第 ③ 道"证据是否通过全部四道闸门"）：
+        证据引用的 exec_id 存在，且该 exec 上有**被接受的**副作用观测
+        （G-3 强证据）。G-4 独立复现（I7 T4.9）尚未交付，因此当前
+        "全部闸门"= G-1（入库时已验签）+ G-2（存在即被引用过）+
+        G-3（有 accepted 观测）。**G-4 未交付这一点必须在交接文档中
+        显式声明**，不得让调用方以为四道都过了。
+        """
+        entry = self._ledger.get(evidence_id)
+        if entry is None:
+            return False
+        if not entry.exec_id:
+            return False
+        # G-3：该证据的 exec 上存在被接受的副作用观测。
+        return bool(self.accepted_observations_for_execs([entry.exec_id]))
 
     # ------------------------------------------------------------------
     # 证据入库（G-1 内建于 Ledger.append，此处只做透传 —— 无旁路）

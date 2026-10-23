@@ -1,263 +1,360 @@
-// Spectrum → 实体/关系的分解与多源写入（modules/M2 §4.3，T2.2/T2.3）。
-//
-// 分解规则（契约依据 05 §3.2 各实体必填属性 + M1 草稿键约定，
-// 见 docs/iterations/I1-交接.md §3.4）：
-//
-//	nmap 产出的 SERVICE 草稿带 host_addr —— 推导 RUNS_ON 关系指向同
-//	光谱内的 ASSET（addr == host_addr）。
-//	去重：同 (kind, 全属性) 的实体复用既有 entity_id（新增 provenance，
-//	不新增实体）——「多源冗余天然消解级联失败」（M2 §4.3）。
 package prism
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 
 	alethv1 "github.com/AperturePrism/aleth/core/api/aleth/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// IngestResult 是一次摄入的结论（05 §3.3 IngestResult）。
-type IngestResult struct {
-	CreatedEntityIDs  []string
-	UpdatedEntityIDs  []string // 既有实体新增版本（属性变化）
-	ConflictEntityIDs []string
-	ConflictTypes     map[string]string
+// 本文件实现 M2 §2.1 R2（多源写入与冲突保留，T2.3）与
+// R3（时间版本管理，T2.4）。
+//
+// # 不可协商的写入语义
+//
+//  1. **不覆盖、不合并**（M2 §4.3）：同一实体的不同来源给出不同属性值时，
+//     各自成为**新版本**，全部保留。旧版本置 valid_to，新版本 valid_from。
+//     这是对 D12「级联失败」的结构性回应 —— 侦察漏掉一个服务不再导致
+//     下游永不测试它。
+//  2. **时间由 Store 赋值**：调用方自带的 valid_from 被忽略（M2 §8：
+//     禁止应用层自行生成时间戳）。与证据账本拒绝 caller-provided
+//     created_at 同一理由 —— 时间线必须由受信组件书写。
+//  3. **幂等**：相同 spectrum_id 重复 Ingest 无副作用（M2 §6 测试要求）。
+//  4. **属性值完全相同时不产生新版本**：重复观测同一事实不是冲突，
+//     否则每次扫描都会让版本号膨胀。此时只追加 provenance（多源审计），
+//     这正是"多源一致性"要求的落点：全部来源可追溯。
+
+// Ingest 写入一条光谱（PrismService.Ingest 的实现，05 §3.3），写入主分支。
+//
+// 分支语义：EvidenceSpectrum 是 [frozen] 消息、无 branch 字段，因此
+// 契约上的 Ingest 只能落主分支。假设分支的写入走 IngestInto（见下），
+// 由 L4/L5 在假设探索期间显式指定 —— 这保持了契约不动的约束
+// （docs/09 R1：不得改 05 契约）。
+func (s *Store) Ingest(ctx context.Context, sp *alethv1.EvidenceSpectrum) (*alethv1.IngestResult, error) {
+	return s.IngestInto(ctx, sp, MainBranchID)
 }
 
-// Ingest 把一份光谱分解写入地图（05 §3.3 PrismService.Ingest）。
-//
-// 幂等（M2 §6）：相同 spectrum_id 重复摄入直接返回空结果，无副作用。
-// 多源（M2 §4.3）：同 kind 且「身份属性」相同 → 同一实体；属性值冲突 →
-// 新增版本 + Conflict 记录（VALUE_MISMATCH），不覆盖不合并。
-func (s *Store) Ingest(spectrum *alethv1.EvidenceSpectrum) (*IngestResult, error) {
-	if spectrum == nil {
-		return nil, fmt.Errorf("nil spectrum")
+// IngestInto 把光谱写入指定分支（假设探索用）。
+// 分支不存在时返回 ErrBranchNotFound（不静默落到主分支 ——
+// 那会让"分支隔离"这一安全属性失效）。
+func (s *Store) IngestInto(
+	ctx context.Context, sp *alethv1.EvidenceSpectrum, branchID string,
+) (*alethv1.IngestResult, error) {
+	if err := ctxErr(ctx); err != nil {
+		return nil, err
 	}
+	if sp == nil {
+		return nil, errors.New("prism: nil spectrum")
+	}
+	if sp.GetSpectrumId() == "" {
+		return nil, errors.New("prism: spectrum_id is required (idempotency key)")
+	}
+	branch := normalizeBranch(branchID)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.spectrums[spectrum.SpectrumId] {
-		return &IngestResult{}, nil // 幂等：重复摄入无副作用
+	if err := s.requireBranch(ctx, branch); err != nil {
+		return nil, err
 	}
-	s.spectrums[spectrum.SpectrumId] = true
 
-	result := &IngestResult{ConflictTypes: map[string]string{}}
-	now := s.clock.Now()
+	// 幂等：相同 spectrum_id 重复写入直接返回空结果（零副作用）。
+	// 契约只要求"无副作用"，重复投递的调用方不关心首次的 ID 列表。
+	var seen int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT entity_count FROM ingest_log WHERE spectrum_id = ?`,
+		sp.GetSpectrumId()).Scan(&seen)
+	if err == nil {
+		return &alethv1.IngestResult{}, nil // 已处理过，零副作用
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("prism: idempotency check: %w", err)
+	}
 
-	// ---- 第一遍：ASSET（addr 是身份属性）----
-	assets := map[string]string{} // addr → entity_id
-	for _, d := range spectrum.Entities {
-		if d.Kind != alethv1.EntityKind_ASSET {
+	dec := Decompose(sp)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("prism: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res := &alethv1.IngestResult{}
+	now := s.clock()
+
+	// 假设分支内的实体默认标记 is_hypothesis=true（M2 §4.5：
+	// 分支写入的实体全部带 is_hypothesis）—— 这是 RollbackBranch 与
+	// MergeBranch 判定的依据。实体自带 is_hypothesis 时尊重其值。
+	for _, e := range dec.Entities {
+		if branch != MainBranchID {
+			e.IsHypothesis = true
+		}
+		created, conflict, err := s.upsertEntity(ctx, tx, e, branch, now)
+		if err != nil {
+			return nil, err
+		}
+		if created {
+			res.CreatedEntityIds = append(res.CreatedEntityIds, e.GetEntityId())
+		} else {
+			res.UpdatedEntityIds = append(res.UpdatedEntityIds, e.GetEntityId())
+		}
+		if conflict != nil {
+			res.Conflicts = append(res.Conflicts, conflict)
+		}
+	}
+
+	// 关系：以「已存在的端点」为准写入。指向未入库实体的关系**不臆造实体**，
+	// 但关系本身仍写入（其 from 端有证据支撑）—— 端点实体在后续光谱
+	// 到达时自然连上（图是增量的）。
+	for _, r := range dec.Relations {
+		if err := s.insertRelation(ctx, tx, r, branch, now); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO ingest_log(spectrum_id, ingested_at, entity_count) VALUES (?, ?, ?)`,
+		sp.GetSpectrumId(), now.UnixNano(), len(dec.Entities)); err != nil {
+		return nil, fmt.Errorf("prism: record ingest: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("prism: commit ingest: %w", err)
+	}
+	return res, nil
+}
+
+// requireBranch 确认分支存在（fail-closed：不接受未知分支）。
+func (s *Store) requireBranch(ctx context.Context, branch string) error {
+	var one int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT 1 FROM branch WHERE branch_id = ?`, branch).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: %s", ErrBranchNotFound, branch)
+	}
+	if err != nil {
+		return fmt.Errorf("prism: check branch: %w", err)
+	}
+	return nil
+}
+
+// upsertEntity 写入一个实体版本。
+//
+// 语义（M2 §4.3 的核心）：
+//   - 该实体在该分支**不存在** → 插入 version=1，返回 created=true；
+//   - 已存在且**属性完全相同** → 不产生新版本，只追加 provenance
+//     （多源审计），返回 created=false 且无冲突；
+//   - 已存在且**属性不同** → 旧版本置 valid_to，插入 version=n+1，
+//     并生成 Conflict{VALUE_MISMATCH}（保留多版本，不合并）。
+func (s *Store) upsertEntity(
+	ctx context.Context, tx *sql.Tx, e *alethv1.Entity, branch string, now time.Time,
+) (created bool, conflict *alethv1.Conflict, err error) {
+	cur, err := s.currentVersion(ctx, tx, e.GetEntityId(), branch)
+	if err != nil {
+		return false, nil, err
+	}
+	attrsJSON := canonicalAttrs(e.GetAttributes())
+
+	if cur == nil {
+		if err := s.insertEntityVersion(ctx, tx, e, branch, now, 1, attrsJSON); err != nil {
+			return false, nil, err
+		}
+		if err := s.insertProvenance(ctx, tx, e, branch, 1); err != nil {
+			return false, nil, err
+		}
+		return true, nil, nil
+	}
+
+	// 属性完全一致 → 重复观测，不是冲突。只补来源。
+	if cur.Attrs == attrsJSON && cur.Kind == int32(e.GetKind()) {
+		if err := s.insertProvenance(ctx, tx, e, branch, cur.Version); err != nil {
+			return false, nil, err
+		}
+		return false, nil, nil
+	}
+
+	// 属性不同 → 新版本（不覆盖）。旧版本翻 valid_to。
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE entity SET valid_to = ? WHERE entity_id = ? AND branch_id = ? AND valid_to IS NULL`,
+		now.UnixNano(), e.GetEntityId(), branch); err != nil {
+		return false, nil, fmt.Errorf("prism: close old version: %w", err)
+	}
+	next := cur.Version + 1
+	if err := s.insertEntityVersion(ctx, tx, e, branch, now, next, attrsJSON); err != nil {
+		return false, nil, err
+	}
+	if err := s.insertProvenance(ctx, tx, e, branch, next); err != nil {
+		return false, nil, err
+	}
+
+	// 冲突记录：竞争来源需带上**旧版本**的 provenance（M2 §4.3：
+	// 全部来源可追溯），因此这里把旧版本的来源一并取出。
+	oldSources, err := s.provenanceOf(ctx, tx, e.GetEntityId(), branch, cur.Version)
+	if err != nil {
+		return false, nil, err
+	}
+	competing := append([]*alethv1.Provenance{}, oldSources...)
+	competing = append(competing, e.GetSources()...)
+	ctype := "VALUE_MISMATCH"
+	if cur.Kind != int32(e.GetKind()) {
+		ctype = "EXISTENCE_MISMATCH"
+	}
+	return false, &alethv1.Conflict{
+		EntityId:         e.GetEntityId(),
+		CompetingSources: competing,
+		ConflictType:     ctype,
+	}, nil
+}
+
+// currentVersion 取当前有效版本（valid_to IS NULL）。不存在返回 nil。
+type entityVersionRow struct {
+	Version int
+	Attrs   string
+	Kind    int32
+}
+
+func (s *Store) currentVersion(
+	ctx context.Context, tx *sql.Tx, entityID, branch string,
+) (*entityVersionRow, error) {
+	var row entityVersionRow
+	err := tx.QueryRowContext(ctx,
+		`SELECT version, attrs, kind FROM entity
+		 WHERE entity_id = ? AND branch_id = ? AND valid_to IS NULL
+		 ORDER BY version DESC LIMIT 1`,
+		entityID, branch).Scan(&row.Version, &row.Attrs, &row.Kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("prism: read current version: %w", err)
+	}
+	return &row, nil
+}
+
+// insertEntityVersion 插入一个实体版本行。
+func (s *Store) insertEntityVersion(
+	ctx context.Context, tx *sql.Tx, e *alethv1.Entity,
+	branch string, now time.Time, version int, attrsJSON string,
+) error {
+	hyp := 0
+	if e.GetIsHypothesis() {
+		hyp = 1
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO entity(entity_id, kind, attrs, valid_from, valid_to, version,
+		                    confidence, is_hypothesis, branch_id, session_id)
+		 VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+		e.GetEntityId(), int32(e.GetKind()), attrsJSON, now.UnixNano(),
+		version, e.GetConfidence(), hyp, branch, s.sessionID); err != nil {
+		return fmt.Errorf("prism: insert entity version: %w", err)
+	}
+	return nil
+}
+
+// insertProvenance 追加来源记录（多源审计要求：每次写入都留痕）。
+// 同一 (entity, version, evidence, source_kind) 重复时不重复插入 ——
+// 避免重复投递同一条光谱导致来源膨胀。
+func (s *Store) insertProvenance(
+	ctx context.Context, tx *sql.Tx, e *alethv1.Entity, branch string, version int,
+) error {
+	for _, p := range e.GetSources() {
+		var exists int
+		err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM provenance
+			 WHERE entity_id = ? AND branch_id = ? AND version = ?
+			   AND evidence_id = ? AND source_kind = ?`,
+			e.GetEntityId(), branch, version,
+			p.GetEvidenceId(), int32(p.GetSourceKind())).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("prism: check provenance: %w", err)
+		}
+		if exists > 0 {
 			continue
 		}
-		addr := d.Attributes["addr"]
-		if addr == "" {
-			continue // 必填属性缺失：草稿不可转正（05 §3.2），跳过而非造残实体
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO provenance(entity_id, version, branch_id, source_kind,
+			                        evidence_id, exec_id, observed_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			e.GetEntityId(), version, branch, int32(p.GetSourceKind()),
+			p.GetEvidenceId(), p.GetExecId(), tsNano(p.GetObservedAt())); err != nil {
+			return fmt.Errorf("prism: insert provenance: %w", err)
 		}
-		// 全量草稿属性入图：addr 是身份键（identityKeys），os 等是内容键
-		// —— 内容变化在同一实体上新增版本（M2 §4.3）。
-		id := s.upsertEntity(d.Kind, draftAttrs(d.Attributes),
-			d.ParserConfidence, spectrum, now, &result.CreatedEntityIDs, &result.UpdatedEntityIDs, &result.ConflictEntityIDs, result.ConflictTypes)
-		assets[addr] = id
 	}
-
-	// ---- 第二遍：SERVICE（host_addr + port + protocol 是身份属性）----
-	for _, d := range spectrum.Entities {
-		if d.Kind != alethv1.EntityKind_SERVICE {
-			continue
-		}
-		ident := serviceIdentity(d.Attributes)
-		if ident == "" {
-			continue // 缺身份键：草稿不完整，跳过
-		}
-		attrs := draftAttrs(d.Attributes, "host_addr", "port", "protocol")
-		id := s.upsertEntity(d.Kind, attrs,
-			d.ParserConfidence, spectrum, now, &result.CreatedEntityIDs, &result.UpdatedEntityIDs, &result.ConflictEntityIDs, result.ConflictTypes)
-		// RUNS_ON 关系：host_addr 指向同光谱 ASSET（M2 R1 的关系推导）。
-		if assetID, ok := assets[d.Attributes["host_addr"]]; ok && assetID != "" {
-			s.linkRelation(assetID, id, "RUNS_ON", now)
-		}
-		_ = ident
-	}
-	return result, nil
+	return nil
 }
 
-// serviceIdentity 生成 SERVICE 实体的身份键（host_addr|port|protocol）。
-func serviceIdentity(attrs map[string]string) string {
-	parts := []string{attrs["host_addr"], attrs["port"], attrs["protocol"]}
-	if anyEmpty(parts) {
-		return ""
+// provenanceOf 读某版本的全部来源。
+func (s *Store) provenanceOf(
+	ctx context.Context, tx *sql.Tx, entityID, branch string, version int,
+) ([]*alethv1.Provenance, error) {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT source_kind, evidence_id, exec_id, observed_at FROM provenance
+		 WHERE entity_id = ? AND branch_id = ? AND version = ? ORDER BY row_id`,
+		entityID, branch, version)
+	if err != nil {
+		return nil, fmt.Errorf("prism: read provenance: %w", err)
 	}
-	return strings.Join(parts, "|")
-}
-
-func anyEmpty(ss []string) bool {
-	for _, s := range ss {
-		if s == "" {
-			return true
+	defer func() { _ = rows.Close() }()
+	var out []*alethv1.Provenance
+	for rows.Next() {
+		var (
+			sk         int32
+			ev, ex     string
+			observedAt int64
+		)
+		if err := rows.Scan(&sk, &ev, &ex, &observedAt); err != nil {
+			return nil, fmt.Errorf("prism: scan provenance: %w", err)
 		}
+		p := &alethv1.Provenance{
+			SourceKind: alethv1.SourceKind(sk),
+			EvidenceId: ev,
+			ExecId:     ex,
+		}
+		if observedAt != 0 {
+			p.ObservedAt = timestamppb.New(time.Unix(0, observedAt).UTC())
+		}
+		out = append(out, p)
 	}
-	return false
+	return out, rows.Err()
 }
 
-// draftAttrs 复制草稿属性（排除身份键本身由调用方决定是否写入——
-// I4 保留全量草稿键，M2 §6 凭据安全扫描（Q5）在实体层同样适用）。
-func draftAttrs(src map[string]string, _ ...string) map[string]string {
-	out := make(map[string]string, len(src))
-	for k, v := range src {
-		out[k] = v
+// insertRelation 写入关系（幂等：同一 relation_id 在分支内只写一次）。
+func (s *Store) insertRelation(
+	ctx context.Context, tx *sql.Tx, r *alethv1.Relation, branch string, now time.Time,
+) error {
+	var exists int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM relation WHERE relation_id = ? AND branch_id = ?`,
+		r.GetRelationId(), branch).Scan(&exists); err != nil {
+		return fmt.Errorf("prism: check relation: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO relation(relation_id, from_entity, to_entity, type, attrs,
+		                      confidence, evidence_id, valid_from, valid_to, branch_id, session_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+		r.GetRelationId(), r.GetFromEntity(), r.GetToEntity(), int32(r.GetType()),
+		canonicalAttrs(r.GetAttributes()), r.GetConfidence(), r.GetEvidenceId(),
+		now.UnixNano(), branch, s.sessionID); err != nil {
+		return fmt.Errorf("prism: insert relation: %w", err)
+	}
+	return nil
+}
+
+// attrsToMap 反序列化规范属性 JSON。
+func attrsToMap(raw string) map[string]string {
+	if raw == "" || raw == "{}" {
+		return map[string]string{}
+	}
+	out := map[string]string{}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return map[string]string{}
 	}
 	return out
-}
-
-// upsertEntity 是多源写入的核心（M2 §4.3）：
-//   - 无既有实体 → 新建（version 1）
-//   - 有既有实体且身份属性相同 → 属性一致则只加 provenance；冲突则新增版本
-//   - Conflict（VALUE_MISMATCH），绝不覆盖
-func (s *Store) upsertEntity(
-	kind alethv1.EntityKind,
-	attrs map[string]string,
-	confidence float64,
-	spectrum *alethv1.EvidenceSpectrum,
-	now time.Time,
-	created, updated, conflicted *[]string,
-	conflictTypes map[string]string,
-) string {
-	id := entityIdentityID(kind, attrs)
-
-	prov := provRec{SourceKind: sourceKindOf(spectrum).String()}
-	if spectrum.Tool != nil {
-		prov.EvidenceID = spectrum.SpectrumId
-		prov.ExecID = spectrum.ExecId
-	}
-	prov.ObservedAt = now
-
-	chain := s.versions[id]
-	if len(chain) == 0 {
-		s.versions[id] = []entityVersion{{
-			attrs: attrs, kind: kind,
-			validFrom: now, version: 1,
-			confidence: confidence, branchID: "main",
-		}}
-		s.provenance[id] = append(s.provenance[id], prov)
-		*created = append(*created, id)
-		return id
-	}
-
-	// 多源写入：与当前版本比对属性。
-	tail := chain[len(chain)-1]
-	if sameAttrs(tail.attrs, attrs) {
-		s.provenance[id] = append(s.provenance[id], prov) // 只加来源，不新增版本
-		return id
-	}
-
-	// 属性冲突 → 新版本 + Conflict（不覆盖不合并，M2 §4.3）。
-	version := tail.version + 1
-	s.versions[id] = append(chain, entityVersion{
-		attrs: attrs, kind: kind,
-		validFrom: now, version: version,
-		confidence: confidence, branchID: "main",
-	})
-	s.provenance[id] = append(s.provenance[id], prov)
-	s.conflicts[id] = append(s.conflicts[id], Conflict{
-		EntityID:         id,
-		ConflictType:     "VALUE_MISMATCH",
-		CompetingSources: s.provenance[id],
-	})
-	*updated = append(*updated, id)
-	*conflicted = append(*conflicted, id)
-	conflictTypes[id] = "VALUE_MISMATCH"
-	return id
-}
-
-// linkRelation 建立（或复用）from --type--> to 的关系。
-func (s *Store) linkRelation(from, to, relType string, now time.Time) {
-	id := relationIdentityID(from, to, relType)
-	for _, rv := range s.relations[id] {
-		if rv.validTo == nil {
-			return // 已存在且有效：复用
-		}
-	}
-	s.relations[id] = append(s.relations[id], relationVersion{
-		from: from, to: to, relType: relType, validFrom: now,
-	})
-}
-
-// identityKeys 按 05 §3.2 的「必填属性」界定各类实体的**身份属性子集**：
-// 身份属性参与实体 ID（同一身份 → 同一实体）；其余为内容属性，
-// 内容变化在同一实体上新增版本（M2 §4.3 多源写入的语义基础）。
-//
-//	ASSET      → addr（主机身份）
-//	SERVICE    → host_addr + port + protocol（服务端点身份）
-//	IDENTITY   → kind(user/credential/…) + username
-//	ENDPOINT   → url + method
-//	DEFECT     → defect_type + location
-//	其余 kind   → 全属性（I4 范围内未消费）
-func identityKeys(kind alethv1.EntityKind) []string {
-	switch kind {
-	case alethv1.EntityKind_ASSET:
-		return []string{"addr"}
-	case alethv1.EntityKind_SERVICE:
-		return []string{"host_addr", "port", "protocol"}
-	case alethv1.EntityKind_IDENTITY:
-		return []string{"kind", "username"}
-	case alethv1.EntityKind_ENDPOINT:
-		return []string{"url", "method"}
-	case alethv1.EntityKind_DEFECT:
-		return []string{"defect_type", "location"}
-	default:
-		return nil // nil = 全属性参与身份
-	}
-}
-
-// entityIdentityID 由 (kind, 身份属性子集) 派生确定性实体 ID。
-//
-// 与 uuid7 契约（05 §1.1）的差异在此显式声明：多源写入要求
-// 「同一身份属性 → 同一实体」的**内容寻址** ID —— 随机 uuid7 会把
-// 两次独立扫描发现同一服务记成两个实体，破坏 M2 §4.3 的多源语义。
-// map/ 迁移的 entity_id 列为 TEXT，两种形态均兼容。
-func entityIdentityID(kind alethv1.EntityKind, attrs map[string]string) string {
-	keys := identityKeys(kind)
-	if keys == nil {
-		keys = make([]string, 0, len(attrs))
-		for k := range attrs {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d", int(kind))
-	for _, k := range keys {
-		fmt.Fprintf(&b, "|%s=%s", k, attrs[k])
-	}
-	sum := sha256.Sum256([]byte(b.String()))
-	return "ent_" + hex.EncodeToString(sum[:12])
-}
-
-func relationIdentityID(from, to, relType string) string {
-	sum := sha256.Sum256([]byte(relType + "|" + from + "|" + to))
-	return "rel_" + hex.EncodeToString(sum[:12])
-}
-
-func sameAttrs(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-	return true
-}
-
-// sourceKindOf 由光谱来源推导 provenance 的 SourceKind。
-// I2 的光谱全部来自主动扫描工具（L0 Ingest）；被动流量/白盒/二进制
-// 来源在 M7/I8 接入时扩展此映射。
-func sourceKindOf(*alethv1.EvidenceSpectrum) alethv1.SourceKind {
-	return alethv1.SourceKind_ACTIVE_SCAN
 }

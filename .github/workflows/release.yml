@@ -13,7 +13,8 @@
 #   1. 三个平台的 alethd 与 aleth 二进制（Linux / macOS / Windows，amd64 + arm64）
 #   2. 内嵌 WebUI 的单二进制 —— 用户下载一个文件即可运行完整系统（docs/06 §8）
 #   3. checksums.txt（sha256）
-#   4. 从 CHANGELOG 提取的 Release Notes
+#   4. **构建来源证明（SLSA provenance attestation）** —— docs/07 §T6
+#   5. 从 CHANGELOG 提取的 Release Notes
 #
 # 为什么 Release Notes 从 CHANGELOG 提取而不是手写：
 #   docs/09 §10 第 8 项已要求每个迭代写 CHANGELOG 条目。
@@ -32,8 +33,19 @@ on:
         description: "要发布的 tag（如 v0.1.0）"
         required: true
 
+# 权限（docs/07 §T6「CI 凭据最小权限」）。
+#
+# 这里是全仓库**唯一**需要 write 的 workflow（创建 Release 与上传资产）。
+# ci.yml 只需要 `contents: read` —— 两者的差异由
+# `tests/test_ci_workflows.py::test_release_needs_write_and_ci_does_not`
+# 断言，防止某天被随手改宽或改窄。
+#
+# `id-token: write` 是 SLSA provenance attestation 所必需：
+# attest-build-provenance 用 OIDC 向 Sigstore 换取签名证书
+# （无需在仓库里存任何长期密钥 —— 这也是选它的理由之一）。
 permissions:
-  contents: write   # 创建 Release 与上传资产需要
+  contents: write   # 创建 Release 与上传资产
+  id-token: write   # SLSA provenance 签名（OIDC → Sigstore）
 
 jobs:
   # ==========================================================================
@@ -196,6 +208,31 @@ jobs:
           echo "--- checksums.txt ---"
           cat ../checksums.txt
           cp ../checksums.txt .
+
+      # ★ 构建来源证明（docs/07 §T6「CI 供应链 → 构建产物签名」）。
+      #
+      # 为什么选 SLSA provenance 而不是自签 GPG：
+      #
+      # 1. **无需长期密钥**。attest-build-provenance 用 CI 的 OIDC 身份
+      #    向 Sigstore 换取**短期**证书。仓库里不存任何私钥 ——
+      #    因此不存在"私钥泄漏导致所有历史产物都不可信"的风险，
+      #    也不需要密钥轮换流程。
+      #
+      # 2. **它证明的是"谁构建的"而非仅"内容未变"**。checksums.txt
+      #    只能防传输篡改（攻击者若能改产物也能改校验和）；
+      #    provenance 把产物绑定到「本仓库 + 本 workflow + 本 commit」，
+      #    用户可验证"这个二进制确实由该 commit 的 CI 产出"。
+      #
+      # 3. 验证不需要本项目参与：`gh attestation verify <file> --repo ...`。
+      #    审计方不必信任我们的站点或密钥管理。
+      #
+      # 诚实边界：attestation 只覆盖**构建来源**，不覆盖"代码本身没有
+      # 后门"。后者是代码审阅与开源可验证性的职责（07 §T7 的同一诚实声明）。
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            artifacts/*
 
       - name: Extract release notes from CHANGELOG
         id: notes

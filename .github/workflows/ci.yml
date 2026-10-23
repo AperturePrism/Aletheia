@@ -35,6 +35,22 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 最小权限（docs/07 §T6「CI 凭据最小权限」）。
+#
+# 此前本文件**没有 permissions 块** —— 那时每个 job 拿到的是仓库默认权限
+# （历史上是 read-write，可推提交、可改 Release）。CI 只需要读代码，
+# 因此这里显式降到 `contents: read`。
+#
+# 为什么这条重要而不是形式：CI 会执行 PR 里的代码（`make test` 等），
+# 而 PR 可能来自 fork。权限过大时，一个被投毒 PR 的构建脚本就能用
+# GITHUB_TOKEN 推提交或篡改 Release —— 那正是 T6「CI 供应链」要防的事。
+# 最小权限把这条路径的收益降到接近零。
+#
+# 对照：release.yml 已正确声明 `contents: write`（创建 Release 需要）。
+# 本文件相反，只需要读。
+permissions:
+  contents: read
+
 env:
   GO_VERSION: "1.24"
   NODE_VERSION: "22"

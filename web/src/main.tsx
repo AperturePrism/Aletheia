@@ -7,6 +7,12 @@ import { LiveExecutionPage } from "./views/live/LiveExecutionPage";
 import { NotImplementedPage } from "./views/NotImplementedPage";
 import { ScopeAuthorizationPage } from "./views/scope/ScopeAuthorizationPage";
 import { EvidenceChainPage } from "./views/evidence/EvidenceChainPage";
+import { MindMapPage } from "./views/map/MindMapPage";
+import { ApertureContextPage } from "./views/aperture/ApertureContextPage";
+import { DecisionQueuePage } from "./views/decision/DecisionQueuePage";
+import { CostPanelPage } from "./views/cost/CostPanelPage";
+import { ConflictMatrixPage } from "./views/conflict/ConflictMatrixPage";
+import { ReportExportPage } from "./views/report/ReportExportPage";
 import "./styles/app.css";
 
 // Aletheia WebUI 入口。
@@ -29,40 +35,32 @@ const router = createBrowserRouter([
       // 06 §6.1 页面 2 —— I0 交付
       { path: "live", element: <LiveExecutionPage /> },
 
-      // 06 §6.1 页面 3 · 心智地图浏览器 —— I4
-      {
-        path: "map",
-        element: <NotImplementedPage pageName="心智地图浏览器" iteration="I4" module="M2" />,
-      },
+      // 06 §6.1 页面 3 · 心智地图浏览器 —— I4 交付。
+      // M2 是系统唯一真源；此页让"系统记住了什么"可见（含时间回放）。
+      { path: "map", element: <MindMapPage /> },
 
       // 06 §6.1 页面 4 ★ 证据链视图 —— I2 交付（最小可用版）。
       // 本项目三个核心视图之一（docs/09 R9：不可省略）。
       { path: "evidence", element: <EvidenceChainPage /> },
       { path: "evidence/:findingId", element: <EvidenceChainPage /> },
 
-      // 06 §6.1 页面 5 ★ 光圈上下文视图 —— I5
-      {
-        path: "aperture",
-        element: <NotImplementedPage pageName="光圈上下文视图 ★" iteration="I5" module="M3" coreView />,
-      },
+      // 06 §6.1 页面 5 ★ 光圈上下文视图 —— I5 交付。
+      // 本项目三个核心视图之一（docs/09 R9：不可省略）。
+      // 它让「取舍」可见，同时是 M3 召回率问题的诊断工具。
+      { path: "aperture", element: <ApertureContextPage /> },
 
-      // 06 §6.1 页面 6 ★ 冲突矩阵视图 —— I8
-      {
-        path: "conflicts",
-        element: <NotImplementedPage pageName="冲突矩阵视图 ★" iteration="I8" module="M7" coreView />,
-      },
+      // 06 §6.1 页面 6 ★ 冲突矩阵视图 —— I8 交付。
+      // 本项目三个核心视图的最后一个（docs/09 R9：不可省略）。
+      // 「打不通但有缺陷」是最高价值象限，纯 CLI 输出会把它淹没。
+      { path: "conflicts", element: <ConflictMatrixPage /> },
 
-      // 06 §6.1 页面 7 · 人机协同决策队列 —— I6
-      {
-        path: "decisions",
-        element: <NotImplementedPage pageName="人机协同决策队列" iteration="I6" module="M5" />,
-      },
+      // 06 §6.1 页面 7 · 人机协同决策队列 —— I6 交付。
+      // 人类介入点是设计而非缺陷（全自主 21% vs 有人类提示 64%）。
+      { path: "decisions", element: <DecisionQueuePage /> },
 
-      // 06 §6.1 页面 8 · 报告与导出 —— I11
-      {
-        path: "report",
-        element: <NotImplementedPage pageName="报告与导出" iteration="I11" module="M9" />,
-      },
+      // 06 §6.1 页面 8 · 报告与导出 —— I11 交付。
+      // 分层报告浏览（主报告/附录/调试）+ 导出 Markdown/PDF/SARIF。
+      { path: "report", element: <ReportExportPage /> },
 
       // 06 §6.1 页面 9 · 范围与授权管理 —— I3
       // 注意：授权凭证录入走 CLI 而非 WebUI（docs/06 §3.3「不做首次配置向导」/
@@ -70,11 +68,9 @@ const router = createBrowserRouter([
       // scope 与越界拦截审计视图。
       { path: "scope", element: <ScopeAuthorizationPage /> },
 
-      // 06 §6.1 页面 10 · 成本与预算面板 —— I6
-      {
-        path: "cost",
-        element: <NotImplementedPage pageName="成本与预算面板" iteration="I6" module="M6" />,
-      },
+      // 06 §6.1 页面 10 · 成本与预算面板 —— I6 交付。
+      // 预算与光圈是同一约束的两端（M3 §4.1 恒定曝光）。
+      { path: "cost", element: <CostPanelPage /> },
 
       { path: "*", element: <NotImplementedPage pageName="未知页面" iteration="I0" /> },
     ],
