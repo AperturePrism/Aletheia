@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"syscall"
 	"time"
 )
@@ -62,4 +63,14 @@ func processAlive(pid int) bool {
 	}
 	// signal 0 不发送信号，只做权限与存在性检查（POSIX）。
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+// helperCommand 启动一个长驻辅助进程供 stopProcess 的真实终止测试使用。
+//
+// 用 coreutils 的 sleep（而非测试二进制的 helper-process 惯例）：
+// CI Linux 上实测 SIGTERM 后测试二进制 10s 不退出（根因未明，疑似
+// go test 运行时对信号的额外处理），而 sleep 对 SIGTERM 100% 终止 ——
+// 本测试要验证的是 stopProcess 的行为，不是被杀进程的信号处理。
+func helperCommand() *exec.Cmd {
+	return exec.Command("sleep", "60")
 }

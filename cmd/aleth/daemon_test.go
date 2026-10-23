@@ -371,9 +371,7 @@ func TestStopProcessWaitsForExit(t *testing.T) {
 // 被终止的是本测试自己启动的进程，不涉及任何项目进程或系统进程。
 func execCommandHelper(t *testing.T) *exec.Cmd {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=TestHelperSleepProcess")
-	cmd.Env = append(os.Environ(), "GO_HELPER_PROCESS=1")
-	return cmd
+	return helperCommand() // 平台分支见 daemon_unix.go / daemon_windows.go
 }
 
 // TestHelperSleepProcess 是 execCommandHelper 的被测负载：长驻、

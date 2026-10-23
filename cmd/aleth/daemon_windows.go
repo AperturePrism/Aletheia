@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 )
 
@@ -80,4 +81,12 @@ func processAlive(pid int) bool {
 		return true
 	}
 	return code == stillActive
+}
+
+// helperCommand 启动一个长驻辅助进程（Windows 分支）：复用测试二进制的
+// helper-process 惯例（TerminateProcess 对任何进程都强杀，实测可靠）。
+func helperCommand() *exec.Cmd {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperSleepProcess")
+	cmd.Env = append(os.Environ(), "GO_HELPER_PROCESS=1")
+	return cmd
 }
