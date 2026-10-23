@@ -44,8 +44,11 @@ on:
 # attest-build-provenance 用 OIDC 向 Sigstore 换取签名证书
 # （无需在仓库里存任何长期密钥 —— 这也是选它的理由之一）。
 permissions:
-  contents: write   # 创建 Release 与上传资产
-  id-token: write   # SLSA provenance 签名（OIDC → Sigstore）
+  contents: write        # 创建 Release 与上传资产
+  id-token: write        # SLSA provenance 签名（OIDC → Sigstore）
+  attestations: write    # attest-build-provenance 持久化 attestation
+                         # （v0.6.0 首跑失败：只给 id-token 时 persist 阶段
+                         # 报 Resource not accessible by integration）
 
 jobs:
   # ==========================================================================
