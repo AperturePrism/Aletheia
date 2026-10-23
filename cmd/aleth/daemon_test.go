@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ---- pid 文件读取（status 与 stop 共用同一套解析）----
@@ -362,16 +363,24 @@ func TestStopProcessWaitsForExit(t *testing.T) {
 // 需要它是因为：只测"不存在的 pid"不会执行真正的终止调用。
 // 必须有一个活的进程可杀，才覆盖到 `proc.Kill()` / SIGTERM 的实际路径。
 //
-// 用 `go env -w`：它读取 stdin，因此会一直阻塞等待输入 ——
-// 这正是我们要的"长驻"。不接 stdin（保持 nil），它就不会收到 EOF。
+// 实现用 Go 标准 helper-process 惯例：重新 exec 本测试二进制，
+// 以 GO_HELPER_PROCESS=1 触发 TestHelperSleepProcess（sleep 60s、
+// 不捕获信号）。早先版本用 `go env -w` 读 stdin 阻塞 —— 该行为
+// 在 CI Linux 上不成立（SIGTERM 后 10s 不退出，测试超时），已废弃。
 //
 // 被终止的是本测试自己启动的进程，不涉及任何项目进程或系统进程。
 func execCommandHelper(t *testing.T) *exec.Cmd {
 	t.Helper()
-	goBin, err := exec.LookPath("go")
-	if err != nil {
-		t.Skip("go 不在 PATH 中，跳过真实进程终止测试")
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperSleepProcess")
+	cmd.Env = append(os.Environ(), "GO_HELPER_PROCESS=1")
+	return cmd
+}
+
+// TestHelperSleepProcess 是 execCommandHelper 的被测负载：长驻、
+// 不捕获信号 —— SIGTERM/ Kill 都会确定性地终止它。
+func TestHelperSleepProcess(t *testing.T) {
+	if os.Getenv("GO_HELPER_PROCESS") != "1" {
+		return // 正常测试运行时是空操作
 	}
-	// Stdin 显式设为 nil（不继承），因此 `go env -w` 会阻塞在读取上。
-	return exec.Command(goBin, "env", "-w")
+	time.Sleep(60 * time.Second)
 }
