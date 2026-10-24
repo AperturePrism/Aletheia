@@ -5,7 +5,8 @@
  *
  * 其中**不确定性标注刻意放在选项之前**：先让决策者看到"系统有多确定、
  * 缺什么信息"，再给选项。反过来（先给按钮再看不确定性）会诱导
- * 直接点按钮，那正是 06 §7.1 要防的"被看起来很确定的表述误导"。 */
+ * 直接点按钮，那正是 06 §7.1 要防的"被看起来很确定的表述误导"。
+ * 颜色引用 theme.css 令牌。 */
 
 .dq-toolbar {
   display: flex;
@@ -27,8 +28,8 @@
 .dq-field input {
   padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-input, transparent);
+  border-radius: var(--r-sm);
+  background: var(--bg2);
   color: inherit;
   font-size: 13px;
   min-width: 160px;
@@ -37,9 +38,9 @@
 /* 诚实声明区：不渲染假提交按钮 */
 .dq-notice {
   padding: 9px 12px;
-  border-left: 3px solid #6b7280;
-  background: #6b72800d;
-  border-radius: 0 4px 4px 0;
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg2);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
   font-size: 12px;
   color: var(--text-dim);
   margin-bottom: 18px;
@@ -48,16 +49,16 @@
 /* 契约缺口声明 —— 用琥珀色与普通说明区分：它是"能力受限"而非"提示" */
 .dq-gap {
   padding: 11px 15px;
-  border-left: 3px solid #d97706;
-  background: #d977060d;
-  border-radius: 0 4px 4px 0;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-soft);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
   font-size: 12px;
   line-height: 1.7;
   margin-bottom: 18px;
 }
 
 .dq-gap strong {
-  color: #d97706;
+  color: var(--warn);
   display: block;
   margin-bottom: 5px;
 }
@@ -73,13 +74,14 @@
   margin-bottom: 20px;
   padding: 12px 16px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--r-md);
+  background: var(--bg1);
 }
 
 .dq-blocked h2 {
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--text-dim);
   margin: 0 0 9px;
   display: flex;
@@ -88,11 +90,12 @@
 }
 
 .dq-count {
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 400;
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: var(--border-subtle, #8882);
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--bg3);
 }
 
 .dq-blocked ul {
@@ -107,7 +110,7 @@
   gap: 12px;
   align-items: baseline;
   padding: 4px 0;
-  border-bottom: 1px solid var(--border-subtle, #8881);
+  border-bottom: 1px solid var(--border);
 }
 
 .dq-blocked li:last-child {
@@ -115,11 +118,11 @@
 }
 
 .dq-blocked-ready code {
-  color: #1f9d55;
+  color: var(--ok);
 }
 
 .dq-blocked-reason {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 11px;
 }
 
@@ -131,8 +134,10 @@
 
 .dq-card {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
+  background: var(--bg1);
   overflow: hidden;
+  box-shadow: var(--shadow-card);
 }
 
 .dq-card-head {
@@ -141,16 +146,16 @@
   align-items: flex-start;
   gap: 12px;
   padding: 12px 16px;
-  background: var(--border-subtle, #8881);
+  background: var(--bg2);
   flex-wrap: wrap;
 }
 
 .dq-role {
   display: inline-block;
   padding: 1px 8px;
-  border-radius: 3px;
-  background: #2f6feb22;
-  color: #2f6feb;
+  border-radius: var(--r-full);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 11px;
   margin-right: 8px;
 }
@@ -158,6 +163,7 @@
 .dq-title {
   font-weight: 600;
   font-size: 14px;
+  color: var(--text-hi);
 }
 
 .dq-id {
@@ -177,8 +183,8 @@
   font-size: 11px;
   color: var(--text-dim);
   padding: 1px 8px;
-  border-radius: 3px;
-  background: var(--border-subtle, #8882);
+  border-radius: var(--r-full);
+  background: var(--bg3);
 }
 
 .dq-triggers {
@@ -190,29 +196,29 @@
 /* 触发原因必须显著：它是"为什么需要人类介入"的答案 */
 .dq-trigger {
   padding: 2px 9px;
-  border-radius: 10px;
-  background: #d9770622;
-  color: #d97706;
+  border-radius: var(--r-full);
+  background: var(--warn-soft);
+  color: var(--warn);
   font-size: 11px;
   cursor: help;
 }
 
 .dq-section {
   padding: 12px 16px;
-  border-top: 1px solid var(--border-subtle, #8882);
+  border-top: 1px solid var(--border);
 }
 
 .dq-section h3 {
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
   margin: 0 0 8px;
 }
 
 .dq-none {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-faint);
   margin: 0;
 }
 
@@ -232,20 +238,24 @@
 
 .dq-failure-badge {
   flex: none;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: #d33a2c22;
-  color: #d33a2c;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--err-soft);
+  color: var(--err);
   font-size: 10px;
 }
 
 .dq-link {
   background: none;
   border: none;
-  color: #2f6feb;
+  color: var(--accent);
   cursor: pointer;
   padding: 6px 0 0;
   font-size: 12px;
+}
+.dq-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .dq-evidence-hint {
@@ -258,7 +268,7 @@
 /* ---- 不确定性：放在选项之前 ---- */
 
 .dq-uncertainty {
-  background: #d9770608;
+  background: color-mix(in srgb, var(--warn) 4%, transparent);
 }
 
 .dq-confidence {
@@ -272,22 +282,23 @@
   flex: 1;
   max-width: 240px;
   height: 6px;
-  border-radius: 3px;
-  background: var(--border-subtle, #8882);
+  border-radius: var(--r-full);
+  background: var(--bg3);
   overflow: hidden;
 }
 
 .dq-conf-fill {
   height: 100%;
-  background: #1f9d55;
+  border-radius: var(--r-full);
+  background: var(--ok);
 }
 
 .dq-conf-low {
-  background: #d97706;
+  background: var(--warn);
 }
 
 .dq-conf-note {
-  color: #d97706;
+  color: var(--warn);
   font-size: 11px;
 }
 
@@ -314,26 +325,28 @@
   text-align: left;
   padding: 10px 13px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: inherit;
   cursor: pointer;
   font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .dq-option:hover {
-  border-color: #2f6feb;
-  background: #2f6feb0d;
+  border-color: var(--accent-deep);
+  background: var(--accent-softer);
 }
 
 .dq-option-danger:hover {
-  border-color: #d33a2c;
-  background: #d33a2c0d;
+  border-color: color-mix(in srgb, var(--err) 55%, transparent);
+  background: var(--err-soft);
 }
 
 .dq-option-label {
   font-weight: 600;
   font-size: 13px;
+  color: var(--text-hi);
 }
 
 /* 影响评估与选项标签同级呈现 —— 没有影响的选项等于让人类盲选 */
@@ -345,12 +358,13 @@
 .dq-decided {
   margin-top: 24px;
   padding: 12px 16px;
-  border: 1px dashed var(--border);
-  border-radius: 5px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
 }
 
 .dq-decided h2 {
   font-size: 13px;
+  color: var(--text-hi);
   margin: 0 0 8px;
 }
 

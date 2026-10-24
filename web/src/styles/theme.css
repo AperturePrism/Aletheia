@@ -1,0 +1,139 @@
+/* Aletheia WebUI 设计令牌 —— 单一真源。
+ *
+ * 所有颜色/圆角/阴影/字号必须引用这里的变量；页面级 CSS
+ * 不允许出现硬编码色值（数据编码用的类别色同样定义在此）。
+ *
+ * 取向（docs/06 §7.3「轻量优先」+ 本项目约束）：
+ *   · 深色为默认主题 —— 长时观察（24h/143h 稳定性）是主场景；
+ *     浅色作为可切换主题，两套令牌同构，仅色值不同。
+ *   · 冷灰单色系（hue ≈ 222）+ 单一强调色。类别色仅用于数据编码
+ *     （七类实体/矩阵象限），不承担装饰职责。
+ *   · 字体使用系统栈 —— 不向任何外部域请求字体（数据主权 G6、零遥测 D18）。
+ */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* 中性色阶（冷灰，单一 hue） */
+  --bg0: #0a0d13; /* 页面底 */
+  --bg1: #0f141d; /* 侧栏 / 面板 */
+  --bg2: #161c28; /* 浮起面：输入框 / 嵌套块 */
+  --bg3: #1d2532; /* hover / 按压 */
+  --border: #202939;
+  --border-strong: #2d3950;
+  --text-hi: #edf1f8;
+  --text: #c2cbdb;
+  --text-dim: #8392aa;
+  --text-faint: #5b6980;
+
+  /* 强调色（唯一装饰性主色） */
+  --accent: #66a3ff;
+  --accent-strong: #82b5ff;
+  --accent-deep: #3d6dc4;
+  --accent-soft: rgba(102, 163, 255, 0.13);
+  --accent-softer: rgba(102, 163, 255, 0.07);
+
+  /* 语义色 */
+  --ok: #4cb963;
+  --ok-soft: rgba(76, 185, 99, 0.13);
+  --warn: #d5a03a;
+  --warn-soft: rgba(213, 160, 58, 0.13);
+  --err: #ef6a5e;
+  --err-soft: rgba(239, 106, 94, 0.13);
+  --core: #e5b954; /* 三个核心视图的 ★ 标记色（docs/09 R9） */
+  --core-soft: rgba(229, 185, 84, 0.13);
+
+  /* 类别色：七类实体（05 §3.1）。数据编码用，非装饰 */
+  --k-asset: #5b9cf6;
+  --k-service: #46c48a;
+  --k-identity: #e0b455;
+  --k-endpoint: #38c3d8;
+  --k-defect: #ee6f61;
+  --k-path: #9d86f2;
+  --k-timeline: #7d8ba3;
+  --violet: #9d86f2; /* 冲突矩阵主题色（与 k-path 同源） */
+
+  /* 阴影（带底色 hue 的着色阴影，不用纯黑） */
+  --shadow-card: 0 1px 2px rgba(3, 7, 18, 0.45), 0 10px 28px -14px rgba(3, 7, 18, 0.55);
+  --shadow-pop: 0 16px 48px -12px rgba(3, 7, 18, 0.7);
+
+  /* 侧栏 */
+  --nav-bg: #0c1018;
+  --topbar-bg: rgba(10, 13, 19, 0.82);
+
+  /* 焦点环 */
+  --ring: 0 0 0 3px rgba(102, 163, 255, 0.28);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg0: #f3f5f9;
+  --bg1: #ffffff;
+  --bg2: #f4f6fa;
+  --bg3: #e9edf4;
+  --border: #dfe4ee;
+  --border-strong: #c5cfe0;
+  --text-hi: #16202f;
+  --text: #38445a;
+  --text-dim: #5d6b84;
+  --text-faint: #8a97ad;
+
+  --accent: #2f6ceb;
+  --accent-strong: #1f56c9;
+  --accent-deep: #2f6ceb;
+  --accent-soft: rgba(47, 108, 235, 0.1);
+  --accent-softer: rgba(47, 108, 235, 0.05);
+
+  --ok: #177f3e;
+  --ok-soft: rgba(23, 127, 62, 0.1);
+  --warn: #96660a;
+  --warn-soft: rgba(150, 102, 10, 0.1);
+  --err: #cc3a30;
+  --err-soft: rgba(204, 58, 48, 0.09);
+  --core: #9a7216;
+  --core-soft: rgba(154, 114, 22, 0.1);
+
+  --k-asset: #2f6ceb;
+  --k-service: #148a51;
+  --k-identity: #8a5c00;
+  --k-endpoint: #0a7f96;
+  --k-defect: #c1362b;
+  --k-path: #7443d6;
+  --k-timeline: #5d6b84;
+  --violet: #7443d6;
+
+  --shadow-card: 0 1px 2px rgba(23, 32, 47, 0.06), 0 8px 24px -12px rgba(23, 32, 47, 0.14);
+  --shadow-pop: 0 16px 44px -12px rgba(23, 32, 47, 0.22);
+
+  --nav-bg: #eef1f7;
+  --topbar-bg: rgba(243, 245, 249, 0.85);
+
+  --ring: 0 0 0 3px rgba(47, 108, 235, 0.22);
+}
+
+/* ---- 结构令牌（与主题无关） ---- */
+
+:root {
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-full: 999px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --font-sans: system-ui, "Segoe UI", "Microsoft YaHei", "PingFang SC",
+    "Noto Sans CJK SC", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas,
+    "Courier New", monospace;
+
+  /* z 阶梯：只允许引用这里的层级 */
+  --z-topbar: 40;
+  --z-pop: 60;
+}

@@ -53,8 +53,9 @@ export function SessionOverviewPage() {
           description={
             <>
               <p>
-                alethd 尚未启动。会话列表、成本、进度、风险摘要都需要 daemon 提供数据 ——
-                I0 阶段这些能力标注为 UNIMPLEMENTED，因此页面不会渲染任何示例数据。
+                alethd 尚未启动。会话列表、成本、进度、风险摘要都需要 daemon
+                提供数据 —— 本页不渲染任何示例数据（docs/09 §6 #4：mock
+                会掩盖契约不一致）。
               </p>
               <p className="mono-block">
                 aleth daemon start --authorization roe.yaml
@@ -68,34 +69,29 @@ export function SessionOverviewPage() {
       ) : (
         <EmptyState
           title="暂无会话"
-          description="daemon 已连接，但没有会话记录。新会话由 WebUI 创建的能力在 I6（编排层）交付。"
+          description="daemon 已连接，但没有会话记录。会话由 CLI / 编排层创建（docs/06 §3.3：WebUI 是观察面，控制面在 aleth CLI）。"
         />
       )}
 
       <section className="page-section">
-        <h2>P0 阶段要验证什么</h2>
+        <h2>核心视图（已全部交付）</h2>
         <p>
-          当前迭代 <strong>I0 · 仓库骨架与抽象层</strong>。它的 DoD 是
-          <code>make build &amp;&amp; make test &amp;&amp; make lint</code> 全绿，
-          以及 <strong>WebUI 产物可嵌入单一二进制并正常服务</strong>
-          （<code>docs/04</code> §I0 DoD）。
+          三个差异化能力各有专门视图。它们是本项目的「第一」，
+          也是判断系统是否称职的唯一入口：
         </p>
         <ul>
           <li>
-            观察 P0 的 24h 稳定性测试 → <Link to="/live">实时执行流</Link>（本迭代交付）
+            <Link to="/evidence">证据链视图</Link> —— 验证「系统是否在幻觉」的唯一界面
           </li>
           <li>
-            证据链视图（I2）—— 验证"系统是否在幻觉"的唯一界面
+            <Link to="/aperture">光圈上下文视图</Link> —— 诊断「系统是不是漏看了什么」的唯一界面
           </li>
           <li>
-            光圈上下文视图（I5）—— 诊断"系统是不是漏看了什么"的唯一界面
-          </li>
-          <li>
-            冲突矩阵视图（I8）—— "打不通但有缺陷"这个最高价值象限的呈现方式
+            <Link to="/conflicts">冲突矩阵视图</Link> —— 「打不通但有缺陷」这个最高价值象限的呈现
           </li>
         </ul>
         <p className="empty-hint">
-          后三项是本项目的核心视图（<code>docs/09</code> R9：允许简化视觉细节，不允许省略功能与信息密度）。
+          <code>docs/09</code> R9：允许简化视觉细节，不允许省略功能与信息密度。
         </p>
       </section>
     </section>
