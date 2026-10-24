@@ -123,7 +123,7 @@ P0 门禁状态在每份交接文档中显式声明（当前 I3-自检报告已�
 | 部署形态 | **全容器化**（alethd 二进制 + focalplane 代码入专用容器，宿主机零污染；工作目录 /root/aleth-stability/） |
 | 全栈运行 | ✅ focalplane :7728 + alethd :7723/:7724 三端口 LISTENING（NAS 宿主侧 ss 确认） |
 | Q8 24h 挂机 | ✅ **已启动运行中**（probe_loop.sh：30s 一轮探针 + RSS 采样；幂等重放语义；连续 ok，判定门槛：fail > 50 自动中止） |
-| Q5 靶场 | ⚠️ **镜像拉取受阻**：Docker Hub / ghcr.io / 国内代理源均不可达或无该镜像；待可用镜像源后补（Juice Shop 起容器即可） |
+| Q5 靶场 | 🟡 **部署深入推进，收尾在 V2RayA 环节**：NAS docker 可用确认；V2RayA（*:20171）出站 Docker Hub 已通（匿名 token 获取成功）；带 Bearer 的 manifest 请求仍 401（V2RayA 对 Authorization 头的处理待查）。两个收尾路径：① docker daemon 配 systemd drop-in 代理（HTTP_PROXY=http://127.0.0.1:20171）后 docker pull 直拉——需 restart docker，NAS 有 6 个个人容器需协调中断窗口；② 继续修 python 拉取脚本的代理 auth 细节。靶场就绪后 Q5 完整抓包仍需 LLM key 的真实调用路径 |
 | probe.py 增强 | ✅ --idempotent（幂等重放语义，重启后重放历史轮次返回既有记录——05 §2.2 的 idempotent 契约字段的直接应用） |
 
 **修复过程记录**（debug 链）：SEQ 重置与账本冲突 → focalplane 幂等保护正确拒绝
