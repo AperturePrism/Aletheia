@@ -132,21 +132,26 @@ def test_core_marks_are_on_the_right_views() -> None:
 def parse_core_nav_routes(text: str) -> set[str]:
     """解析导航中带核心视图标记的路由（顶层路径段）。
 
-    匹配 `<NavItem ... to="/x" ... core ... />` 形态：`core` 作为裸属性
-    出现在标签属性列表中。用**行级**解析而不是跨行正则 ——
-    `NavItem` 每个占一行，行级解析不易被 JSON 里的括号干扰。
+    支持两种等价形态（视觉重构引入了数据驱动的导航数组，语义不变）：
+      1. JSX 裸属性：`<NavItem ... to="/x" ... core ... />`
+      2. 对象字面量：`{ to: "/x", ..., core: true }`
+    两者都表示"该导航项被标记为核心视图"。用**行级**解析而不是
+    跨行正则 —— 每个导航项占一行，行级解析不易被括号干扰。
     """
     out: set[str] = set()
     for line in text.splitlines():
-        if "<NavItem" not in line:
+        m = re.search(r'to:\s*"(/?)([^/" ]+)"', line) or re.search(r'to="/([^/"]+)', line)
+        if not m:
             continue
-        # 逐属性判定：core 必须是独立属性（前后是空白或行尾），
+        route = m.group(2)
+        # 形态 1：core 作为 JSX 独立属性（前后是空白或行尾），
         # 避免把 `coreView` / `core={false}` 误判为标记。
-        if not re.search(r"(?<![\w{])core(?![\w=])", line):
+        if re.search(r"(?<![\w{])core(?![\w=])", line):
+            out.add(route)
             continue
-        m = re.search(r'to="/([^/"]+)', line)
-        if m:
-            out.add(m.group(1))
+        # 形态 2：对象字面量里的 `core: true`（core: false 不算标记）。
+        if re.search(r"(?<![\w])core:\s*true(?![\w])", line):
+            out.add(route)
     return out
 
 

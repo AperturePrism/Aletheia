@@ -4,7 +4,8 @@
  * 因此本页的信息层级刻意与"证据链/心智地图"不同 ——
  * **省略声明与入选清单同等显眼**，不能被折叠或弱化：
  * 用户要判断的是"系统是不是漏看了什么"，而漏看的信息就在省略清单里。
- * 弱化它等于让这个视图失去诊断价值。 */
+ * 弱化它等于让这个视图失去诊断价值。
+ * 颜色全部引用 theme.css 令牌。 */
 
 .ap-controls {
   display: flex;
@@ -32,8 +33,8 @@
 .ap-field select {
   padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-input, transparent);
+  border-radius: var(--r-sm);
+  background: var(--bg2);
   color: inherit;
   font-size: 13px;
 }
@@ -59,22 +60,26 @@
 
 .ap-rung {
   flex: 1;
-  padding: 9px 12px;
+  padding: 10px 14px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--r-md);
+  background: var(--bg1);
   opacity: 0.55;
+  transition: opacity 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
 .ap-rung-active {
   opacity: 1;
-  border-color: #2f6feb;
-  background: #2f6feb0d;
+  border-color: var(--accent-deep);
+  background: var(--accent-softer);
+  box-shadow: var(--shadow-card);
 }
 
 .ap-rung-label {
   font-weight: 600;
   font-size: 14px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
+  color: var(--text-hi);
 }
 
 .ap-rung-detail {
@@ -85,7 +90,7 @@
 
 .ap-rung-sem {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text-faint);
 }
 
 /* ---- 摘要 ---- */
@@ -105,22 +110,23 @@
 }
 
 .ap-stop-badge {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-weight: 600;
   font-size: 16px;
   padding: 2px 10px;
-  border-radius: 4px;
-  background: #2f6feb1a;
-  color: #2f6feb;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .ap-usage {
   color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 接近预算上限时高亮 —— 这是"该考虑换档或加预算"的信号。 */
 .ap-usage-high {
-  color: #d97706;
+  color: var(--warn);
   font-weight: 600;
 }
 
@@ -131,21 +137,22 @@
 .ap-usage-bar {
   margin-top: 10px;
   height: 6px;
-  border-radius: 3px;
-  background: var(--border-subtle, #8882);
+  border-radius: var(--r-full);
+  background: var(--bg3);
   overflow: hidden;
 }
 
 .ap-usage-fill {
   height: 100%;
-  background: linear-gradient(90deg, #2f6feb, #7c5cff);
+  border-radius: var(--r-full);
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent));
   transition: width 0.25s ease;
 }
 
 .ap-bundle-id {
   margin-top: 8px;
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text-faint);
 }
 
 /* ---- 区块 ---- */
@@ -156,6 +163,8 @@
 
 .ap-block h2 {
   font-size: 13px;
+  font-weight: 600;
+  color: var(--text-hi);
   margin: 0 0 8px;
   display: flex;
   align-items: center;
@@ -163,36 +172,37 @@
 }
 
 .ap-count {
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 400;
   color: var(--text-dim);
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: var(--border-subtle, #8882);
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--bg3);
 }
 
 .ap-focal {
   font-size: 13px;
   margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .ap-none {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-faint);
   margin: 0;
 }
 
 /* ★ 省略区块：与入选清单同等显眼（不弱化）。 */
 .ap-block-omitted {
-  border-left: 3px solid #d97706;
-  background: #d977060d;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-soft);
   padding: 10px 14px;
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
 }
 
 .ap-block-omitted h2 {
-  color: #d97706;
+  color: var(--warn);
 }
 
 .ap-omitted-list {
@@ -211,9 +221,10 @@
 
 .ap-kind-chip {
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--border-subtle, #8882);
+  padding: 2px 9px;
+  border-radius: var(--r-full);
+  background: var(--bg3);
+  color: var(--text-dim);
 }
 
 /* ---- 实体表 ---- */
@@ -228,15 +239,15 @@
   text-align: left;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-strong);
 }
 
 .ap-table td {
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border-subtle, #8882);
+  border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
 
@@ -247,10 +258,10 @@
 
 .ap-hyp {
   margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: #d9770622;
-  color: #d97706;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--warn-soft);
+  color: var(--warn);
   font-size: 11px;
 }
 
@@ -267,11 +278,12 @@
 }
 
 .ap-attr-key {
-  color: var(--text-dim);
+  color: var(--text-faint);
 }
 
 .ap-attr-val {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
 
@@ -292,7 +304,7 @@
 }
 
 .ap-arrow {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 11px;
 }
 
@@ -302,9 +314,14 @@
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
+  color: var(--text-hi);
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.ap-reasons summary:hover {
+  color: var(--accent);
 }
 
 .ap-reasons ul {

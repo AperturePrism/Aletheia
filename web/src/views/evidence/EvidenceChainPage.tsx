@@ -69,7 +69,7 @@ export function EvidenceChainPage() {
           placeholder="find_…"
           aria-label="finding id"
         />
-        <button type="submit">追溯证据链</button>
+        <button type="submit" className="btn btn-primary">追溯证据链</button>
       </form>
 
       {state.kind === "loading" && <p>正在追溯…</p>}

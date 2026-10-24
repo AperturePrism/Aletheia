@@ -4,13 +4,43 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#0a0d13" />
 
     <!--
       T5.2 / T5.1（docs/07）：
         · referrer no-referrer —— 避免把带令牌的 URL 泄漏给第三方
         · 无第三方字体/CDN/统计脚本 —— 数据主权（G6）与零遥测（D18）。
-          本项目不向任何外部域发请求。
+          本项目不向任何外部域发请求（favicon 为内联 SVG data URI）。
     -->
+
+    <!-- 主题在首帧之前确定（防闪白/闪黑）；默认深色（长时观察主场景）。
+         ?theme=dark|light|system 可显式指定（便于分享带主题的链接），
+         并持久化到 localStorage。 -->
+    <script>
+      (function () {
+        var t = null;
+        try {
+          var q = new URLSearchParams(location.search).get("theme");
+          if (q === "dark" || q === "light" || q === "system") {
+            t = q;
+            localStorage.setItem("aletheia-theme", q);
+          }
+          if (!t) t = localStorage.getItem("aletheia-theme") || "dark";
+          if (t === "system")
+            t = matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+        } catch (e) {
+          t = "dark";
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f141d'/%3E%3Cpath d='M32 10 50 21v22L32 54 14 43V21z' fill='none' stroke='%2366a3ff' stroke-width='4' stroke-linejoin='round'/%3E%3Cpath d='M24 24l8 8 8-8M24 40l8-8 8 8' stroke='%2366a3ff' stroke-width='3' stroke-linecap='round' fill='none' opacity='.55'/%3E%3C/svg%3E"
+    />
     <title>Aletheia · AperturePrism</title>
   </head>
   <body>
