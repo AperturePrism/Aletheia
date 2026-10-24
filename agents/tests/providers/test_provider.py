@@ -148,8 +148,8 @@ def test_live_tier_routing_cost_ledger():
         pytest.skip("ALETHEIA_LLM_KEY 未设置")
     led = CostLedger()
     provider = OpenAICompatProvider(
-        os.environ.get("ALETHEIA_LLM_BASE", "https://token.sensenova.cn/v1"),
-        key, ledger=led)
+        os.environ.get("ALETHEIA_LLM_BASE", "https://token.sensenova.cn/v1"), key, ledger=led
+    )
     router = Router(provider=provider)
 
     r_planning = router.chat("planning", "用一句话说明端口扫描的目的")
