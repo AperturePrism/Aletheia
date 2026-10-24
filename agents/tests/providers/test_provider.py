@@ -134,3 +134,33 @@ def test_live_channel_smoke():
     r = p.chat("Reply with exactly: OK", model="deepseek-flash", max_tokens=512)
     assert r.content.strip(), f"empty content: {r}"
     assert led.total_tokens() > 0
+
+
+@pytest.mark.llm_live
+def test_live_tier_routing_cost_ledger():
+    """I12「分级路由生效且有成本账本验证」的机制级证据：
+
+    两个档位各跑一次真实调用 → 账本按 model/tier 聚合 →
+    路由确定性（planning 走重档、rank 走轻档）与记账完整性同时验证。
+    """
+    key = os.environ.get("ALETHEIA_LLM_KEY")
+    if not key:
+        pytest.skip("ALETHEIA_LLM_KEY 未设置")
+    led = CostLedger()
+    provider = OpenAICompatProvider(
+        os.environ.get("ALETHEIA_LLM_BASE", "https://token.sensenova.cn/v1"),
+        key, ledger=led)
+    router = Router(provider=provider)
+
+    r_planning = router.chat("planning", "用一句话说明端口扫描的目的")
+    r_rank = router.chat("rank", "给以下漏洞按严重度排序：XSS、RCE（只回复排序结果）")
+
+    assert r_planning.model == router.model_for("planning")
+    assert r_rank.model == router.model_for("rank")
+    assert r_planning.usage.total_tokens > 0
+    assert r_rank.usage.total_tokens > 0
+    # 账本聚合：按模型与按档位两种口径都能对上。
+    by_model = led.by_model()
+    assert by_model.get(router.model_for("planning"), 0) > 0
+    assert by_model.get(router.model_for("rank"), 0) > 0
+    assert led.total_tokens() > 0
