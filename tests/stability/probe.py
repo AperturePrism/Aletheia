@@ -53,8 +53,11 @@ def main() -> int:
         "--key-hex", required=True, help="probe Ed25519 私钥（hex），与 focalplane 公钥同对"
     )
     ap.add_argument("--seq", type=int, default=0, help="本轮序号（写入 evidence 使每轮负载唯一）")
-    ap.add_argument("--idempotent", action="store_true",
-                    help="Append 用幂等重放语义（重启后重放历史轮次返回既有记录）")
+    ap.add_argument(
+        "--idempotent",
+        action="store_true",
+        help="Append 用幂等重放语义（重启后重放历史轮次返回既有记录）",
+    )
     args = ap.parse_args()
 
     failures: list[str] = []
@@ -91,8 +94,9 @@ def main() -> int:
         signed.signature = priv.sign(_SIGN_DOMAIN + exec_id.encode("utf-8")).hex()
 
         result = stub.Append(
-            pb.AppendEvidenceRequest(entry=entry, signed_exec_id=signed,
-                                     idempotent=args.idempotent),
+            pb.AppendEvidenceRequest(
+                entry=entry, signed_exec_id=signed, idempotent=args.idempotent
+            ),
             timeout=_RPC_TIMEOUT_S,
         )
         if result.error.code != 0:
