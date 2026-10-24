@@ -170,6 +170,8 @@ markers = [
     "stability: 长时稳定性测试（24h/143h），默认跳过",
     # 确定性测试（P-5）—— 相同输入必须产出字节级一致的结果。
     "determinism: 确定性 / 字节级可复现测试",
+    # 真实 LLM 渠道冒烟（默认跳过；设 ALETHEIA_LLM_KEY 才跑 —— CI 不烧真钱）
+    "llm_live: 真实模型渠道冒烟（需 ALETHEIA_LLM_KEY，默认跳过）",
 ]
 
 # filterwarnings = ["error"]
