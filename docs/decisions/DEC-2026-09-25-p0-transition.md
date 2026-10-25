@@ -171,7 +171,13 @@ Gateway gRPC 真实、抓包真实 —— 判据字面与实质均覆盖。
 2. ~~**Q5 靶场抓包**~~ ✅ 已执行并判定通过（上方记录）；验证资产沉淀 `tests/q5/`。
 3. **I12 成本验证（降 ≥ 60%）** —— 需 Agent 池与真实模型调用的账本数据。
 4. **I13 微调** —— 需轨迹数据集与训练基础设施。
-5. **I7 的 G-4 独立复现执行** —— 需 docker 容器快照（接口与显式 pending 已就绪；NAS docker + 靶场已就绪，可开工）。
+5. ~~**I7 的 G-4 独立复现执行**~~ ✅ **已交付**（PR #15，2026-10-25）：
+   repro.py 执行器（ProcessBackend 第一版 + ReproBackend 协议，P1 容器
+   后端可注入）+ focalplane.reproduce 真实现（仅对 CANDIDATE 执行；
+   成功即 CANDIDATE→CONFIRMED 唯一入口；失败留痕）。NAS 真实验证七项
+   断言全过（tests/g4/ 可复跑），并暴露修复两个单测盲区缺陷（多模式
+   逗号串解析、跨进程提交可见性）。诚实边界：真实漏洞重放待 Sandbox
+   装配（见第 6 条）。
 6. **IngestService.Execute 的 Sandbox 依赖装配** —— Q5 判定走 GatewayService
    gRPC 直调路径已闭合判据；Execute 全链（Scope→Tokenize→Sandbox→Scan→Parse）
    仍因 Sandbox 未装配而 UPSTREAM_UNAVAILABLE（I1 显式语义）。容器化沙箱
