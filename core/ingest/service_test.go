@@ -49,6 +49,10 @@ func (f *fakeGateway) TokenizeParams(_ context.Context, _ string, params map[str
 	return params, nil
 }
 
+func (f *fakeGateway) TokenizeOutput(_ context.Context, _ string, raw []byte) ([]byte, error) {
+	return raw, nil // fake：原样返回（不脱敏）；真实行为见真 Gateway 集成测试
+}
+
 func (f *fakeGateway) ScanOutbound(_ context.Context, _ string, raw []byte) error {
 	if f.leakOutput {
 		return ErrPrivacyLeak
@@ -256,10 +260,17 @@ func TestExecuteSandboxEmptyExecID(t *testing.T) {
 	assertGRPC(t, err, codes.Internal, alethv1.ErrorCode_EVIDENCE_INVALID)
 }
 
-type stubSandbox struct{ execID string }
+type stubSandbox struct {
+	execID string
+	output []byte // nil 时返回占位输出 "out"
+}
 
 func (s stubSandbox) Execute(context.Context, string, []string) (string, []byte, error) {
-	return s.execID, []byte("out"), nil
+	out := s.output
+	if out == nil {
+		out = []byte("out")
+	}
+	return s.execID, out, nil
 }
 
 func TestExecuteUnknownTool(t *testing.T) {
@@ -480,6 +491,11 @@ type realGateway struct{ gw *gateway.Gateway }
 
 func (a realGateway) TokenizeParams(_ context.Context, _ string, params map[string]string) (map[string]string, error) {
 	return params, nil
+}
+
+func (a realGateway) TokenizeOutput(_ context.Context, _ string, raw []byte) ([]byte, error) {
+	out, _ := a.gw.Tokenize(string(raw))
+	return []byte(out), nil
 }
 
 func (a realGateway) ScanOutbound(_ context.Context, _ string, raw []byte) error {

@@ -270,6 +270,11 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 		registry.Ingest = ingest.NewService(ingestCatalog, ingest.Deps{
 			Scope:   scopeCheckerAdapter{kernel: kernel},
 			Gateway: gatewayAdapter{gateway: gw},
+			// Sandbox 第一版：进程沙箱（无 shell/最小 env/临时 cwd/超时/
+			// 输出上限）。容器化部署形态下 alethd 本身运行在专用容器内，
+			// 进程边界即容器边界；Docker/Kata 级隔离（M6 §7.1 完整要求）
+			// 为 P1 后续项，实现同一 SandboxRunner 接口即可替换。
+			Sandbox: ingest.NewProcessSandbox(ingest.DefaultSandboxTimeout),
 		}, rawStore)
 		registry.Scope = scopekernel.NewServer(kernel)
 		logger.Info("scope kernel + privacy gateway wired",

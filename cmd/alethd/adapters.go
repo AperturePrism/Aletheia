@@ -49,6 +49,11 @@ func (a gatewayAdapter) TokenizeParams(
 	return out, nil
 }
 
+func (a gatewayAdapter) TokenizeOutput(_ context.Context, _ string, raw []byte) ([]byte, error) {
+	tokenized, _ := a.gateway.Tokenize(string(raw))
+	return []byte(tokenized), nil
+}
+
 func (a gatewayAdapter) ScanOutbound(_ context.Context, _ string, raw []byte) error {
 	if hits := a.gateway.ScanOutbound(string(raw)); len(hits) > 0 {
 		return ingest.ErrPrivacyLeak
