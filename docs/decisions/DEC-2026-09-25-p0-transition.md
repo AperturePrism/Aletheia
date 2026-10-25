@@ -178,10 +178,13 @@ Gateway gRPC 真实、抓包真实 —— 判据字面与实质均覆盖。
    断言全过（tests/g4/ 可复跑），并暴露修复两个单测盲区缺陷（多模式
    逗号串解析、跨进程提交可见性）。诚实边界：真实漏洞重放待 Sandbox
    装配（见第 6 条）。
-6. **IngestService.Execute 的 Sandbox 依赖装配** —— Q5 判定走 GatewayService
-   gRPC 直调路径已闭合判据；Execute 全链（Scope→Tokenize→Sandbox→Scan→Parse）
-   仍因 Sandbox 未装配而 UPSTREAM_UNAVAILABLE（I1 显式语义）。容器化沙箱
-   （docker exec / 容器隔离即沙箱边界的第一版）为 P1 交付项。
+6. ~~**IngestService.Execute 的 Sandbox 依赖装配**~~ ✅ **已交付**（PR #17，
+   2026-10-25）：ProcessSandbox 第一版（无 shell/最小 env/临时 cwd/超时/
+   输出上限，exec_{uuid7} 签发）+ 输出脱敏顺序修正（I3 行为缺陷：原先对
+   原始 stdout 直接 ScanOutbound，真实扫描 100% 被阻断；改按 M6 §4.2 先
+   TokenizeOutput 再扫描）。NAS e2e 六项断言全过（tests/sandbox/ 可复跑）
+   —— Execute 自 I0 以来首次真实全链。Docker/Kata 级容器隔离与
+   SignedExecId 签名服务为后续项（同接口替换 / 随 Append 代理交付）。
 
 ## NAS 部署进展（2026-10-24 起，持续更新）
 
