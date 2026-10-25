@@ -32,9 +32,15 @@ type ScopeChecker interface {
 
 // PrivacyGateway 是 GatewayService 的 L0 视角（M1 §3）。
 type PrivacyGateway interface {
-	// TokenizeParams 把参数中的真实敏感值替换为脱敏 token。失败必须拒绝执行。
+	// TokenizeParams 把参数中的真实敏感值替换为脱敏 token（同时把
+	// 真实值→token 映射登记进网关映射表）。失败必须拒绝执行。
 	TokenizeParams(ctx context.Context, toolName string, params map[string]string) (map[string]string, error)
-	// ScanOutbound 对工具原始输出做出站二次扫描；命中即阻断（05 §6.4）。
+	// TokenizeOutput 把工具输出中的真实敏感值替换为脱敏 token 并登记
+	// 映射。顺序约定（M6 §4.2）：ScanOutbound 必须在 Tokenize 之后调用
+	// —— 原始输出含真实值是常态（nmap 输出本就有目标 IP），先脱敏、
+	// 后扫描：扫的是脱敏后文本，命中 = Tokenize 漏网，才是泄漏。
+	TokenizeOutput(ctx context.Context, toolName string, raw []byte) ([]byte, error)
+	// ScanOutbound 对出站内容做二次扫描；命中即阻断（05 §6.4）。
 	ScanOutbound(ctx context.Context, toolName string, raw []byte) error
 }
 
@@ -198,8 +204,16 @@ func (s *Service) Execute(ctx context.Context, req *alethv1.ToolRequest) (*aleth
 			"sandbox returned empty exec_id; evidence would be unattributable")
 	}
 
-	// 步骤 7：出站二次扫描。有命中 → 阻断，光谱不得离开 L0（M1 §3）。
-	if err := s.deps.Gateway.ScanOutbound(ctx, req.GetToolName(), stdout); err != nil {
+	// 步骤 7：输出脱敏 + 出站二次扫描（顺序是 M6 §4.2 的硬约定）。
+	// 原始 stdout 留在 L0（内容寻址存储 + 进图解析都消费真实值）；
+	// 出站可见的形态是 tokenized 文本。ScanOutbound 扫的是脱敏后文本 ——
+	// 命中 = Tokenize 漏网（如目标回显了模式库外的真实值形态），阻断。
+	tokenizedOut, err := s.deps.Gateway.TokenizeOutput(ctx, req.GetToolName(), stdout)
+	if err != nil {
+		return nil, errCode(codes.Unavailable, alethv1.ErrorCode_UPSTREAM_UNAVAILABLE,
+			"output tokenize failed; refusing to release spectrum: %v", err)
+	}
+	if err := s.deps.Gateway.ScanOutbound(ctx, req.GetToolName(), tokenizedOut); err != nil {
 		if errors.Is(err, ErrPrivacyLeak) {
 			return nil, errCode(codes.FailedPrecondition, alethv1.ErrorCode_PRIVACY_LEAK_DETECTED,
 				"tool output contains unsanitized sensitive value; blocked")
