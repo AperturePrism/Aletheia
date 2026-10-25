@@ -121,8 +121,10 @@ def test_report_hallucination_via_grpc(client) -> None:
     assert state.threshold == 3
 
 
-def test_reproduce_via_grpc_is_explicitly_pending(client) -> None:
+def test_reproduce_via_grpc_unknown_evidence(client) -> None:
+    """G-4 已交付（T4.9）：未知证据显式 NOT_FOUND，不伪造复现结论。"""
     stub, _ = client
     result = stub.Reproduce(pb.ReproduceRequest(evidence_id="ev_x", finding_id="find_x"))
     assert not result.reproduced
-    assert "I7" in result.g4.reason
+    assert not result.g4.passed
+    assert result.error.code == pb.NOT_FOUND
