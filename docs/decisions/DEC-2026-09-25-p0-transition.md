@@ -101,8 +101,8 @@ P0 门禁状态在每份交接文档中显式声明（当前 I3-自检报告已�
 | 项 | 状态 |
 |---|---|
 | DEC-1（contract 794f135 复核） | ✅ **已裁定并执行**：项目负责人确认通过（对话「直接合吧」），I2 正式收口。裁定记录见上方「裁定」节 |
-| DEC-2（Q5 靶场抓包） | ⏳ 待 docker 安装后执行（机制层已验证：core/gateway 测试全绿；靶场端到端验证为 P0 门禁第 4 条收尾项） |
-| DEC-3（P0→P1 推进节奏） | ✅ 已按「B 带护栏并行」执行：I4（M2）→ I5（M3）→ I6（M5）→ I7（终止仲裁测试）→ I8（三路融合）→ I9（后渗透）→ I10（Intent Modeler）→ I11（评测 Harness）全部交付（docs/iterations/I4–I11 交接与自检齐备）；**P0 门禁第 1 条（Q8 24h）已于 2026-10-25 判定通过**（见「Q8 判定记录」节）；第 4 条（Q5 抓包）保持显式未通过，详见各迭代自检报告 |
+| DEC-2（Q5 靶场抓包） | ✅ **已执行并判定通过**（2026-10-25，见「Q5 判定记录」节） |
+| DEC-3（P0→P1 推进节奏） | ✅ 已按「B 带护栏并行」执行：I4（M2）→ I5（M3）→ I6（M5）→ I7（终止仲裁测试）→ I8（三路融合）→ I9（后渗透）→ I10（Intent Modeler）→ I11（评测 Harness）全部交付（docs/iterations/I4–I11 交接与自检齐备）；**P0 门禁五条已全绿**（Q8 24h 与 Q5 抓包均于 2026-10-25 判定通过，见对应判定记录节）——R10 的 P0→P1 前置条件全部满足 |
 | Q8 harness | ✅ 已交付（tests/stability/run.sh + probe.py + rss.py，已冒烟验证；143h 全量运行需专用机器） |
 | **Q8 24h 挂机判定** | ✅ **PASS（2026-10-25 收口，三判据全过）** —— 见下方「Q8 判定记录」节 |
 | 熔断 8 类 | ✅ 已补齐（I6 交接 D-2 关闭） |
@@ -133,22 +133,59 @@ alethd + focalplane），挂机窗口 2026-10-24T11:57:18Z → 2026-10-25T11:57:
 **结论**：P0 门禁第 1 条（Q8 24h）**通过**。143h 全量运行仍留待 P1 阶段
 专用机器执行（非本门禁要求）。
 
+## Q5 判定记录（2026-10-25 收口）
+
+**判据**（M6 §4.3）：在 OWASP Juice Shop 类靶场上全程开启网关运行，
+抓包验证：模型侧流量中零真实 IP / 域名 / 凭据。
+
+**环境**：NAS 靶场 Juice Shop（host 网络 :3000，镜像经国内加速源
+`docker.1panel.live` 直连拉取 —— V2RayA 对 registry 的 Authorization
+处理问题就此绕开，两条旧收尾路径作废）；alethd GatewayService（gRPC
+7724，I6 接线）；容器内真实 nmap 7.95；mock LLM 为**明文回环**端点
+（明文是判据的一部分 —— 模型侧请求体必须在抓包中可见，HTTPS 下无从
+断言）；tcpdump 抓容器 lo:18888。验证脚本沉淀为 `tests/q5/`（可复跑）。
+
+| # | 断言 | 结果 |
+|---|---|---|
+| A1 | Tokenize 后模型侧内容零靶场真实 IP | ✅（nmap 真实观测 7001B，含真实 IP；tokenized 后 0 命中） |
+| A2 | 映射表 token 逐一出现在内容中 | ✅ 3/3（类别 IP_PRIVATE，格式 `IP_PRIVATE_001`） |
+| B1 | tokenized prompt 经 ScanOutbound 放行并完成 LLM 往返 | ✅ |
+| B2 | 反面：未经 Tokenize 的原始观测被 ScanOutbound 命中阻断 | ✅ hits=3（R7 出站扫描真实拦截） |
+| C1 | tcpdump pcap 模型侧流量零真实 IP | ✅（pcap 18270B，真实 IP 0 命中） |
+| C2 | pcap 与 mock 落盘请求体中 token 存在（流量真实发出） | ✅（请求体 7463B，真实 IP 0 命中 / token 命中） |
+
+**链路说明（如实）**：本次验证走 `GatewayService.Tokenize/ScanOutbound`
+gRPC 直调路径（Provider 的 scan 钩子即接于此），**未走
+`IngestService.Execute` 全链** —— Execute 的 Sandbox 依赖仍未装配
+（I1 显式 UPSTREAM_UNAVAILABLE 语义），该缺口与 Q5 判据（网关脱敏在
+真实数据流上的有效性）正交，登记为后续交付项。靶场真实、nmap 真实、
+Gateway gRPC 真实、抓包真实 —— 判据字面与实质均覆盖。
+
+**结论**：P0 门禁第 4 条（Q5 抓包）**通过**。**P0 门禁五条全绿**
+（① Q8 24h ✓ ② Q3 反幻觉 CI ✓ ③ Q4 越界 fail-closed CI ✓
+④ Q5 抓包 ✓ ⑤ Q9 预算熔断 ✓），P0→P1 推进的前置条件全部满足（R10）。
+
 ## 剩余需外部资源的事项（会话内不可完成，如实登记）
 
 1. ~~**Q8 24h / 143h 稳定性挂机**~~ ✅ 24h 已完成判定（上方记录）；143h 全量运行留待 P1 专用机器。
-2. **Q5 靶场抓包** —— 需 docker 安装 + Juice Shop 靶场。
+2. ~~**Q5 靶场抓包**~~ ✅ 已执行并判定通过（上方记录）；验证资产沉淀 `tests/q5/`。
 3. **I12 成本验证（降 ≥ 60%）** —— 需 Agent 池与真实模型调用的账本数据。
 4. **I13 微调** —— 需轨迹数据集与训练基础设施。
-5. **I7 的 G-4 独立复现执行** —— 需 docker 容器快照（接口与显式 pending 已就绪）。
+5. **I7 的 G-4 独立复现执行** —— 需 docker 容器快照（接口与显式 pending 已就绪；NAS docker + 靶场已就绪，可开工）。
+6. **IngestService.Execute 的 Sandbox 依赖装配** —— Q5 判定走 GatewayService
+   gRPC 直调路径已闭合判据；Execute 全链（Scope→Tokenize→Sandbox→Scan→Parse）
+   仍因 Sandbox 未装配而 UPSTREAM_UNAVAILABLE（I1 显式语义）。容器化沙箱
+   （docker exec / 容器隔离即沙箱边界的第一版）为 P1 交付项。
 
-## NAS 部署进展（2026-10-24）
+## NAS 部署进展（2026-10-24 起，持续更新）
 
 | 项 | 状态 |
 |---|---|
 | 部署形态 | **全容器化**（alethd 二进制 + focalplane 代码入专用容器，宿主机零污染；工作目录 /root/aleth-stability/） |
 | 全栈运行 | ✅ focalplane :7728 + alethd :7723/:7724 三端口 LISTENING（NAS 宿主侧 ss 确认） |
 | Q8 24h 挂机 | ✅ **已完成并判定 PASS**（见「Q8 判定记录」节；循环按 24h 时限自然退出） |
-| Q5 靶场 | 🟡 **部署深入推进，收尾在 V2RayA 环节**：NAS docker 可用确认；V2RayA（*:20171）出站 Docker Hub 已通（匿名 token 获取成功）；带 Bearer 的 manifest 请求仍 401（V2RayA 对 Authorization 头的处理待查）。两个收尾路径：① docker daemon 配 systemd drop-in 代理（HTTP_PROXY=http://127.0.0.1:20171）后 docker pull 直拉——需 restart docker，NAS 有 6 个个人容器需协调中断窗口；② 继续修 python 拉取脚本的代理 auth 细节。靶场就绪后 Q5 完整抓包仍需 LLM key 的真实调用路径 |
+| Q5 靶场 | ✅ **Juice Shop 已就绪并完成判定**（见「Q5 判定记录」节）：镜像经 docker.1panel.live 直连拉取（346MB，绕开 V2RayA 401 问题，旧两条收尾路径作废）；容器 host 网络 :3000 常驻；容器内补 nmap 7.95 + tcpdump |
+| WebUI | ✅ 已更新为视觉重构版（PR #12，2026-10-25）：27723 socat 中转返回新 UI（双主题） |
 | probe.py 增强 | ✅ --idempotent（幂等重放语义，重启后重放历史轮次返回既有记录——05 §2.2 的 idempotent 契约字段的直接应用） |
 
 **修复过程记录**（debug 链）：SEQ 重置与账本冲突 → focalplane 幂等保护正确拒绝
