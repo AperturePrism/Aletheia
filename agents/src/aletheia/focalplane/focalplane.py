@@ -9,8 +9,9 @@
     G-2 失败（无证据支撑）       → **REJECTED**（记录原因，供 Refiner 学习）
     G-3 失败（无强证据）         → 停在 **CANDIDATE**（不是 REJECTED —— 弱证据
                                    是「待补强」，不是「已证伪」）
-    G-4 失败（复现不过）         → 回退 CANDIDATE（I7 T4.9；I2 阶段 G-4 显式 pending，
-                                   CONFIRMED 跃迁代码就绪但不可达）
+    G-4 失败（复现不过）         → 回退 CANDIDATE（T4.9 复现执行器：独立后端重放
+                                   ReproSpec，副作用模式再命中才算复现；成功即
+                                   CANDIDATE→CONFIRMED 的唯一入口）
 
 归因双向校验（M4 §4.4 / 04 §I2 关键决策③）：证据首次被某断言引用时绑定
 target；同一证据被**不同 target** 的断言引用 → ATTRIBUTION_MISMATCH →
@@ -30,6 +31,7 @@ from dataclasses import dataclass
 
 from aletheia.focalplane import arbiter, ids, patterns
 from aletheia.focalplane.ledger import Ledger
+from aletheia.focalplane.repro import ProcessBackend, ReproBackend, ReproExecutor
 from aletheia.gen.aleth.v1 import aletheia_pb2 as pb
 
 # 幻觉熔断默认值（M4 §4.6；可注入覆盖，见 FocalPlane 构造参数）。
@@ -89,11 +91,15 @@ class FocalPlane:
         agent_hallucination_threshold: int = DEFAULT_AGENT_THRESHOLD,
         session_hallucination_ratio: float = DEFAULT_SESSION_RATIO,
         on_p0_alert: Callable[[P0Alert], None] | None = None,
+        repro_backend: ReproBackend | None = None,
     ) -> None:
         self._ledger = ledger
         self._agent_threshold = agent_hallucination_threshold
         self._session_ratio = session_hallucination_ratio
         self._on_p0_alert = on_p0_alert
+        # G-4 复现后端（T4.9）：默认本机进程；P1 的容器后端实现同一
+        # Protocol 注入即可（M4 §8「复现环境用容器快照复用」）。
+        self._repro_backend: ReproBackend = repro_backend or ProcessBackend()
         self._lock = threading.Lock()
         # 状态机表与账本共用同一 SQLite 文件（同库不同表；互不写对方列）。
         self._state = _StateStore(ledger.db_path)
@@ -393,20 +399,100 @@ class FocalPlane:
         return self._hallucination_state(session_id, agent_id)
 
     # ------------------------------------------------------------------
-    # Reproduce（I7 T4.9 —— 显式 pending，绝不静默假装通过）
+    # Reproduce（I7 T4.9 —— G-4 独立复现执行器）
     # ------------------------------------------------------------------
 
     def reproduce(self, evidence_id: str, finding_id: str, spec) -> pb.ReproduceResult:
+        """G-4：在独立后端按 ReproSpec 重放，对照副作用模式判定。
+
+        成本控制（M4 §4.2）：仅对 CANDIDATE finding 执行 —— HYPOTHESIS
+        不值得浪费复现预算。复现成功 → CANDIDATE→CONFIRMED（这是
+        CONFIRMED 的唯一入口，05 §5.1）；失败 → 保持 CANDIDATE 并记录
+        （复现失败率本身是核心指标）。
+        """
         result = pb.ReproduceResult()
-        result.reproduced = False
-        result.g4.passed = False
-        result.g4.reason = (
-            "G-4 independent reproduction is delivered in I7 (T4.9); "
-            "I2 explicitly does not fabricate a reproduction verdict"
+
+        entry = self._ledger.get(evidence_id)
+        if entry is None:
+            result.g4.passed = False
+            result.g4.reason = f"evidence {evidence_id!r} not in ledger"
+            result.error.code = pb.NOT_FOUND
+            result.error.message = result.g4.reason
+            return result
+
+        finding = self._state.get_finding(finding_id)
+        if finding is None:
+            result.g4.passed = False
+            result.g4.reason = f"finding {finding_id!r} not found"
+            result.error.code = pb.NOT_FOUND
+            result.error.message = result.g4.reason
+            return result
+
+        # M4 §4.2：仅对 CANDIDATE 执行（fail-closed：其它状态明确拒绝）。
+        if finding["status"] != "CANDIDATE":
+            result.g4.passed = False
+            result.g4.reason = f"G-4 only runs on CANDIDATE findings (current: {finding['status']})"
+            result.error.code = pb.INVALID_ARGUMENT
+            result.error.message = result.g4.reason
+            return result
+
+        # spec 优先用请求携带的；请求为空时回退到证据自带的 reproducibility。
+        use_spec = spec if spec is not None and spec.steps else entry.reproducibility
+        # 比对模式取「已接受的」副作用观测（side_effects 表 accepted=1，
+        # RecordSideEffect 路径判定）—— 与 G-3 同源。不读 entry 上的原始
+        # side_effects 声明：那会绕过接受判定（模式库命中的强证据语义）。
+        # 表里存的是模式名（可审计；一次观测命中多模式时为逗号串，
+        # 如 "id_root,id_generic"）；复现比对需拆分并解析回正则。名字在
+        # 当前库中不存在（库演进删模式）→ 该模式无法比对，跳过 ——
+        # 全部跳过后 executor 层 fail-closed（"no matched patterns"）。
+        regex_by_name = {p.name: p.regex.pattern for p in patterns.PATTERNS}
+        accepted = self._state.accepted_observations_for_execs([entry.exec_id])
+        accepted_patterns = list(
+            dict.fromkeys(  # 保序去重：多观测命中同模式只比对一次
+                regex_by_name[name]
+                for s in accepted
+                if ":" in s
+                for name in s.split(":", 1)[1].split(",")
+                if name in regex_by_name
+            )
         )
-        result.error.code = pb.ERROR_CODE_UNSPECIFIED
-        result.error.message = result.g4.reason
-        _ = (evidence_id, finding_id, spec)
+        executor = ReproExecutor(self._repro_backend)
+        reproduced, reason, exec_id = executor.reproduce(
+            side_effect_patterns=accepted_patterns,
+            spec_steps=list(use_spec.steps),
+            spec_env_hash=use_spec.environment_hash,
+            spec_estimated_minutes=use_spec.estimated_minutes,
+        )
+
+        result.reproduced = reproduced
+        result.reproduction_exec_id = exec_id
+        result.g4.passed = reproduced
+        result.g4.reason = reason
+        result.g4.evidence_refs.append(evidence_id)
+        result.environment_hash = self._repro_backend.fingerprint()
+
+        with self._lock:
+            if reproduced:
+                # CONFIRMED 的唯一入口（05 §5.1 状态机：G-3 + G-4 双过）。
+                self._state.transition(
+                    finding_id,
+                    pb.CONFIRMED,
+                    reason=f"G-4 reproduced: {reason}",
+                    actor="repro-executor",
+                )
+            else:
+                # 失败保持 CANDIDATE（同态跃迁仅作审计留痕，M4 §4.2
+                # 「复现失败率本身是核心指标」）。
+                self._state.transition(
+                    finding_id,
+                    pb.CANDIDATE,
+                    reason=f"G-4 reproduction failed: {reason}",
+                    actor="repro-executor",
+                )
+            # transition 不自提交（组合调用方统一收尾的约定）—— 直接调用
+            # 方必须显式提交，否则 gRPC 客户端跨进程读不到状态跃迁
+            # （NAS 首次真实验证暴露的缺陷：RPC 返回成功而库中仍是 CANDIDATE）。
+            self._state.commit()
         return result
 
     # ------------------------------------------------------------------
@@ -416,7 +502,7 @@ class FocalPlane:
     def _g4_pending(self) -> GateOutcome:
         return GateOutcome(
             False,
-            "G-4 reproduction pending (I7 T4.9); CONFIRMED is unreachable in I2 by design",
+            "G-4 not evaluated at assertion time; run Reproduce on the CANDIDATE finding (T4.9)",
         )
 
     def _decide_status(self, result: pb.ValidateAssertionResult) -> pb.FindingStatus.V:
@@ -650,6 +736,13 @@ class _StateStore:
             "UPDATE findings SET status = ? WHERE finding_id = ?",
             (to_name, finding_id),
         )
+
+    def commit(self) -> None:
+        """提交当前事务。transition() 刻意不自提交（upsert_finding 等组合
+        调用方统一收尾）；绕过组合调用方直接使用 transition 时（如 G-4 的
+        reproduce）必须显式提交 —— 否则写停留在未提交事务里，跨进程
+        读者（gRPC 客户端、审计脚本）不可见。"""
+        self._conn.commit()
 
     def mark_needs_review(self, finding_id: str) -> None:
         self._conn.execute(

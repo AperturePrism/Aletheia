@@ -96,7 +96,7 @@ class TestGate2AndStatusMachine:
         # G-3 未登记观测 → fail（封顶）；G-4 pending → 不可 CONFIRMED。
         assert not result.g3_strength.passed
         assert not result.g4_reproduction.passed
-        assert "pending (I7" in result.g4_reproduction.reason
+        assert "not evaluated at assertion time" in result.g4_reproduction.reason
         assert result.resulting_status == pb.CANDIDATE
 
     def test_g2_fail_is_rejected_with_reason(self, fp) -> None:
@@ -293,11 +293,11 @@ class TestHallucinationCircuitBreaker:
 
 
 class TestReproduce:
-    def test_g4_reproduction_explicitly_pending(self, fp) -> None:
-        """I2 不伪造复现结论 —— G-4 显式 pending（I7 T4.9）。"""
+    def test_g4_reproduction_unknown_finding(self, fp) -> None:
+        """G-4 已交付（T4.9）：未知 finding 显式 NOT_FOUND，不伪造结论。"""
         plane, _ledger, priv, _alerts = fp
         entry, _ = append_real_evidence(plane, priv, "exec_repro")
         result = plane.reproduce(entry.evidence_id, "find_x", pb.ReproSpec())
         assert not result.reproduced
         assert not result.g4.passed
-        assert "I7" in result.g4.reason
+        assert result.error.code == pb.NOT_FOUND
