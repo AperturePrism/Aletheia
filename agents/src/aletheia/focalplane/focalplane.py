@@ -441,16 +441,21 @@ class FocalPlane:
         # 比对模式取「已接受的」副作用观测（side_effects 表 accepted=1，
         # RecordSideEffect 路径判定）—— 与 G-3 同源。不读 entry 上的原始
         # side_effects 声明：那会绕过接受判定（模式库命中的强证据语义）。
-        # 表里存的是模式名（可审计）；复现比对需解析回正则。名字在当前
-        # 库中不存在（库演进删模式）→ 该观测无法比对，直接丢弃 ——
-        # 丢弃后若再无比对基准，executor 层 fail-closed。
+        # 表里存的是模式名（可审计；一次观测命中多模式时为逗号串，
+        # 如 "id_root,id_generic"）；复现比对需拆分并解析回正则。名字在
+        # 当前库中不存在（库演进删模式）→ 该模式无法比对，跳过 ——
+        # 全部跳过后 executor 层 fail-closed（"no matched patterns"）。
         regex_by_name = {p.name: p.regex.pattern for p in patterns.PATTERNS}
         accepted = self._state.accepted_observations_for_execs([entry.exec_id])
-        accepted_patterns = [
-            regex_by_name[name]
-            for s in accepted
-            if (name := s.split(":", 1)[1] if ":" in s else None) in regex_by_name
-        ]
+        accepted_patterns = list(
+            dict.fromkeys(  # 保序去重：多观测命中同模式只比对一次
+                regex_by_name[name]
+                for s in accepted
+                if ":" in s
+                for name in s.split(":", 1)[1].split(",")
+                if name in regex_by_name
+            )
+        )
         executor = ReproExecutor(self._repro_backend)
         reproduced, reason, exec_id = executor.reproduce(
             side_effect_patterns=accepted_patterns,
@@ -484,6 +489,10 @@ class FocalPlane:
                     reason=f"G-4 reproduction failed: {reason}",
                     actor="repro-executor",
                 )
+            # transition 不自提交（组合调用方统一收尾的约定）—— 直接调用
+            # 方必须显式提交，否则 gRPC 客户端跨进程读不到状态跃迁
+            # （NAS 首次真实验证暴露的缺陷：RPC 返回成功而库中仍是 CANDIDATE）。
+            self._state.commit()
         return result
 
     # ------------------------------------------------------------------
@@ -727,6 +736,13 @@ class _StateStore:
             "UPDATE findings SET status = ? WHERE finding_id = ?",
             (to_name, finding_id),
         )
+
+    def commit(self) -> None:
+        """提交当前事务。transition() 刻意不自提交（upsert_finding 等组合
+        调用方统一收尾）；绕过组合调用方直接使用 transition 时（如 G-4 的
+        reproduce）必须显式提交 —— 否则写停留在未提交事务里，跨进程
+        读者（gRPC 客户端、审计脚本）不可见。"""
+        self._conn.commit()
 
     def mark_needs_review(self, finding_id: str) -> None:
         self._conn.execute(

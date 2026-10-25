@@ -27,8 +27,10 @@ SESSION = "sess_repro"
 TASK = "task_repro"
 AGENT = "agent_recon"
 
-#: 与 patterns.py 命中库一致的 uid 观测（ID_OUTPUT 强证据正反例的 正例）。
-UID_PATTERN_TEXT = "uid=33(www-data) gid=33(www-data) groups=33(www-data)"
+#: id(1) root 输出 —— 同时命中 id_root 与 id_generic 两个模式（一次观测
+#: 命中多模式时 matched_pattern 存逗号串，G-4 名字解析需拆分；这正是
+#: NAS 首次真实验证暴露的路径）。
+UID_PATTERN_TEXT = "uid=0(root) gid=0(root) groups=0(root)"
 
 
 def sign_exec_id(priv: Ed25519PrivateKey, exec_id: str) -> pb.SignedExecId:
@@ -124,6 +126,25 @@ class TestReproduceEndToEnd:
         assert result.reproduction_exec_id.startswith("repro_")
         assert result.environment_hash == backend.fingerprint_value
         assert plane._state.get_finding(fid)["status"] == "CONFIRMED"
+
+    def test_confirmation_visible_to_new_connection(self, tmp_path: Path, sandbox_keys) -> None:
+        """跨连接可见性（NAS 首次真实验证暴露的缺陷回归）。
+
+        transition 不自提交时，同连接读得到未提交数据（上面的断言会过），
+        但 gRPC 客户端/审计脚本是**另一个连接** —— 必须用全新连接断言，
+        否则提交缺失会被同连接可见性掩盖。
+        """
+        priv, pub_hex = sandbox_keys
+        from aletheia.focalplane.execverifier import Ed25519Verifier
+
+        db = str(tmp_path / "l.db")
+        plane = FocalPlane(Ledger(db, Ed25519Verifier(pub_hex)), repro_backend=FakeBackend())
+        entry, fid = build_candidate(plane, priv)
+        assert plane.reproduce(entry.evidence_id, fid, pb.ReproSpec()).reproduced
+        # 全新 StateStore 连接：模拟 gRPC 客户端 / 审计脚本的读取视角。
+        from aletheia.focalplane.focalplane import _StateStore
+
+        assert _StateStore(db).get_finding(fid)["status"] == "CONFIRMED"
 
     def test_failure_keeps_candidate_with_audit_trail(self, tmp_path: Path, sandbox_keys) -> None:
         """复现失败 → 保持 CANDIDATE，同态跃迁留审计痕。"""
