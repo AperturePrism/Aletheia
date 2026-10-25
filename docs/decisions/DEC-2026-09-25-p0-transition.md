@@ -102,15 +102,40 @@ P0 门禁状态在每份交接文档中显式声明（当前 I3-自检报告已�
 |---|---|
 | DEC-1（contract 794f135 复核） | ✅ **已裁定并执行**：项目负责人确认通过（对话「直接合吧」），I2 正式收口。裁定记录见上方「裁定」节 |
 | DEC-2（Q5 靶场抓包） | ⏳ 待 docker 安装后执行（机制层已验证：core/gateway 测试全绿；靶场端到端验证为 P0 门禁第 4 条收尾项） |
-| DEC-3（P0→P1 推进节奏） | ✅ 已按「B 带护栏并行」执行：I4（M2）→ I5（M3）→ I6（M5）→ I7（终止仲裁测试）→ I8（三路融合）→ I9（后渗透）→ I10（Intent Modeler）→ I11（评测 Harness）全部交付（docs/iterations/I4–I11 交接与自检齐备）；**P0 门禁第 1 条（Q8 24h）与第 4 条（Q5 抓包）保持显式未通过**，详见各迭代自检报告 |
+| DEC-3（P0→P1 推进节奏） | ✅ 已按「B 带护栏并行」执行：I4（M2）→ I5（M3）→ I6（M5）→ I7（终止仲裁测试）→ I8（三路融合）→ I9（后渗透）→ I10（Intent Modeler）→ I11（评测 Harness）全部交付（docs/iterations/I4–I11 交接与自检齐备）；**P0 门禁第 1 条（Q8 24h）已于 2026-10-25 判定通过**（见「Q8 判定记录」节）；第 4 条（Q5 抓包）保持显式未通过，详见各迭代自检报告 |
 | Q8 harness | ✅ 已交付（tests/stability/run.sh + probe.py + rss.py，已冒烟验证；143h 全量运行需专用机器） |
+| **Q8 24h 挂机判定** | ✅ **PASS（2026-10-25 收口，三判据全过）** —— 见下方「Q8 判定记录」节 |
 | 熔断 8 类 | ✅ 已补齐（I6 交接 D-2 关闭） |
 | Checkpoint 快照接线 | ✅ 已接线（checkpoint_adapter.go：GraphVersion = M2 StateHash，BudgetSnapshotHash = Governor 状态摘要） |
 
+## Q8 判定记录（2026-10-25 20:00 收口）
+
+**运行环境**：NAS（10.40.23.191）全容器化部署（aleth-stability 容器，
+alethd + focalplane），挂机窗口 2026-10-24T11:57:18Z → 2026-10-25T11:57:11Z，
+循环按 24h 时限自然退出（CSV 尾部 DONE 标记，非异常中止）。
+原始数据存档：`tests/stability/last_run/probes.csv`（2855 数据行，gitignored 本地留档）。
+
+| # | 判据（M6 §4.1） | 结果 | 证据 |
+|---|---|---|---|
+| 1 | 崩溃次数 == 0 | ✅ **0** | docker RestartCount=0，容器 StartedAt 2026-10-24T11:39:21Z 起 Up 24h 连续；两进程全程存活 |
+| 2 | 探针失败 == 0 | ✅ **0 / 2855 轮全 ok** | `grep -c ',FAIL'` = 0；每轮含 alethd ListAdapters/ValidateTool + focalplane Append（G-1 验签真实执行）两类真实 gRPC 往返 |
+| 3 | RSS 增长 < 5% | ✅ **fp −80.7%，ad −58.1%**（负增长） | head（预热 600s 后 2 样本均值）fp 52540KB / ad 24764KB；tail（末 2 样本均值）fp 10116KB / ad 10376KB |
+| — | RSS 采样失败 == 0 | ✅ **0** | 2855 数据行全部携带有效 RSS 值（「采样失败 ≠ 无泄漏」不折算为 0% 的口径下仍为 0） |
+
+**RSS 骤降说明（如实记录）**：曲线在 13:00Z 起阶梯下降（52.5→32.3MB），
+18:10:48Z 一次大降（28.6→11.4MB）。容器零重启 + 探针零失败证明进程未死过，
+归因为运行时内存归还（Go runtime 归还堆 + Python 稳态后内核回收），非异常。
+判定按口径取 head vs tail，增长率为负，不构成泄漏证据。
+
+**轮次说明**：期望 ~2880 轮，实际 2855 轮 —— 每轮周期为「30s sleep + RPC 实际耗时」
+（≈30.3s），2855 × 30.3s ≈ 24.03h，与挂机窗口吻合；非丢轮。
+
+**结论**：P0 门禁第 1 条（Q8 24h）**通过**。143h 全量运行仍留待 P1 阶段
+专用机器执行（非本门禁要求）。
+
 ## 剩余需外部资源的事项（会话内不可完成，如实登记）
 
-1. **Q8 24h / 143h 稳定性挂机** —— harness 已就绪，需专用机器与墙钟时间
-   （`make stability`，判定门槛：零崩溃 + 探针 100% + RSS 增长 < 5%）。
+1. ~~**Q8 24h / 143h 稳定性挂机**~~ ✅ 24h 已完成判定（上方记录）；143h 全量运行留待 P1 专用机器。
 2. **Q5 靶场抓包** —— 需 docker 安装 + Juice Shop 靶场。
 3. **I12 成本验证（降 ≥ 60%）** —— 需 Agent 池与真实模型调用的账本数据。
 4. **I13 微调** —— 需轨迹数据集与训练基础设施。
@@ -122,7 +147,7 @@ P0 门禁状态在每份交接文档中显式声明（当前 I3-自检报告已�
 |---|---|
 | 部署形态 | **全容器化**（alethd 二进制 + focalplane 代码入专用容器，宿主机零污染；工作目录 /root/aleth-stability/） |
 | 全栈运行 | ✅ focalplane :7728 + alethd :7723/:7724 三端口 LISTENING（NAS 宿主侧 ss 确认） |
-| Q8 24h 挂机 | ✅ **已启动运行中**（probe_loop.sh：30s 一轮探针 + RSS 采样；幂等重放语义；连续 ok，判定门槛：fail > 50 自动中止） |
+| Q8 24h 挂机 | ✅ **已完成并判定 PASS**（见「Q8 判定记录」节；循环按 24h 时限自然退出） |
 | Q5 靶场 | 🟡 **部署深入推进，收尾在 V2RayA 环节**：NAS docker 可用确认；V2RayA（*:20171）出站 Docker Hub 已通（匿名 token 获取成功）；带 Bearer 的 manifest 请求仍 401（V2RayA 对 Authorization 头的处理待查）。两个收尾路径：① docker daemon 配 systemd drop-in 代理（HTTP_PROXY=http://127.0.0.1:20171）后 docker pull 直拉——需 restart docker，NAS 有 6 个个人容器需协调中断窗口；② 继续修 python 拉取脚本的代理 auth 细节。靶场就绪后 Q5 完整抓包仍需 LLM key 的真实调用路径 |
 | probe.py 增强 | ✅ --idempotent（幂等重放语义，重启后重放历史轮次返回既有记录——05 §2.2 的 idempotent 契约字段的直接应用） |
 
