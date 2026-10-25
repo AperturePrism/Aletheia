@@ -13,11 +13,13 @@ DoD 措辞（docs/04 §I7）：「G-4 独立复现可运行，单次复现 < 10 
 可运行（DoD 的「可运行」），不是真实漏洞重放；后者待 Sandbox 装配
 （P1 交付项，见 DEC 文档登记）。
 """
+
 from __future__ import annotations
 
 import sqlite3
 import sys
 import time
+from pathlib import Path
 
 import grpc
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -47,7 +49,8 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 def main() -> int:
     stub = LedgerServiceStub(grpc.insecure_channel(FOCAL))
-    priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(open(KEY).read().strip()))
+    with Path(KEY).open() as f:
+        priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(f.read().strip()))
     env_hash = ProcessBackend().fingerprint()
 
     exec_id = "exec_g4_verify_1"
@@ -62,7 +65,9 @@ def main() -> int:
     signed.exec_id = exec_id
     signed.signature = priv.sign(SIGN_DOMAIN + exec_id.encode()).hex()
 
-    r = stub.Append(pb.AppendEvidenceRequest(entry=entry, signed_exec_id=signed, idempotent=True), timeout=15)
+    r = stub.Append(
+        pb.AppendEvidenceRequest(entry=entry, signed_exec_id=signed, idempotent=True), timeout=15
+    )
     check("证据入账（G-1 验签路径）", r.error.code == 0, f"self_hash={r.self_hash[:12]}…")
 
     obs = pb.SideEffectObservation()
