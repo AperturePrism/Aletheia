@@ -41,6 +41,8 @@ CyBench / CVE-Bench / XBOW / HTB 的适配器需要外部环境（CTFd、容器
 外部环境的可用性。
 """
 
+from aletheia.harness.driver import DryRunSystem, aggregate_with_scores, run_benchmark
+from aletheia.harness.juiceshop import JuiceShopAdapter
 from aletheia.harness.adapter import (
     BenchmarkAdapter,
     BenchmarkTask,
@@ -83,6 +85,10 @@ __all__ = [
     "BenchmarkTask",
     "FailureCase",
     "HarnessRun",
+    "JuiceShopAdapter",
+    "DryRunSystem",
+    "run_benchmark",
+    "aggregate_with_scores",
     "Limitation",
     "Metric",
     "Report",
