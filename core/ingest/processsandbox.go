@@ -16,6 +16,7 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -50,21 +51,31 @@ func NewProcessSandbox(timeout time.Duration) *ProcessSandbox {
 // Execute 在一次性临时目录中以最小 env 执行 argv，返回签发的 exec_id
 // 与原始 stdout。argv 由适配器 Schema 确定性渲染（R5），不含 shell。
 func (s *ProcessSandbox) Execute(ctx context.Context, toolName string, argv []string) (string, []byte, error) {
+	execID, stdout, _, _, err := s.ExecuteFull(ctx, toolName, argv)
+	return execID, stdout, err
+}
+
+// ExecuteFull 是完整形态（SandboxService.Execute 消费）：额外返回
+// stderr 与退出码 —— 契约要求工具失败时证据（输出引用）仍然返回，
+// 因此失败路径也带回已捕获的输出。
+func (s *ProcessSandbox) ExecuteFull(
+	ctx context.Context, toolName string, argv []string,
+) (execID string, stdout, stderr []byte, exitCode int, err error) {
 	if len(argv) == 0 {
-		return "", nil, fmt.Errorf("sandbox: empty argv for tool %q", toolName)
+		return "", nil, nil, -1, fmt.Errorf("sandbox: empty argv for tool %q", toolName)
 	}
 
-	execID, err := newExecID()
+	execID, err = newExecID()
 	if err != nil {
-		return "", nil, fmt.Errorf("sandbox: %w", err)
+		return "", nil, nil, -1, fmt.Errorf("sandbox: %w", err)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	workDir, err := os.MkdirTemp("", "aleth-sandbox-")
-	if err != nil {
-		return "", nil, fmt.Errorf("sandbox: workdir: %w", err)
+	workDir, mkErr := os.MkdirTemp("", "aleth-sandbox-")
+	if mkErr != nil {
+		return execID, nil, nil, -1, fmt.Errorf("sandbox: workdir: %w", mkErr)
 	}
 	defer func() { _ = os.RemoveAll(workDir) }()
 
@@ -76,19 +87,27 @@ func (s *ProcessSandbox) Execute(ctx context.Context, toolName string, argv []st
 		"LC_ALL=C",
 		"HOME=" + filepath.Join(workDir, "home"), // 无宿主 HOME（凭据不入沙箱）
 	}
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
 
-	stdout, err := cmd.Output()
-	if err != nil {
+	runErr := cmd.Run()
+	exitCode = cmd.ProcessState.ExitCode()
+	stdout, stderr = outBuf.Bytes(), errBuf.Bytes()
+
+	if runErr != nil {
 		if runCtx.Err() == context.DeadlineExceeded {
-			return execID, nil, fmt.Errorf("sandbox: tool %q timed out after %s", toolName, s.timeout)
+			return execID, stdout, stderr, exitCode,
+				fmt.Errorf("sandbox: tool %q timed out after %s", toolName, s.timeout)
 		}
-		return execID, nil, fmt.Errorf("sandbox: tool %q failed: %w", toolName, err)
+		return execID, stdout, stderr, exitCode,
+			fmt.Errorf("sandbox: tool %q failed (exit %d): %w", toolName, exitCode, runErr)
 	}
 	if len(stdout) > MaxToolOutputBytes {
-		return execID, nil, fmt.Errorf(
+		return execID, stdout, stderr, exitCode, fmt.Errorf(
 			"sandbox: tool %q output %d bytes exceeds limit %d", toolName, len(stdout), MaxToolOutputBytes)
 	}
-	return execID, stdout, nil
+	return execID, stdout, stderr, exitCode, nil
 }
 
 // newExecID 生成 exec_{uuid7}。与 newSpectrumID 同款 uuidv7 布局
