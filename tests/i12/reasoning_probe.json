@@ -1,0 +1,80 @@
+{
+  "sensenova-6.8-flash-lite": {
+    "baseline": {
+      "total": 507,
+      "reasoning": 389
+    },
+    "reasoning_effort=none": {
+      "total": 400,
+      "reasoning": 282
+    },
+    "reasoning_effort=low": {
+      "total": 451,
+      "reasoning": 333
+    },
+    "enable_thinking=false": {
+      "total": 256,
+      "reasoning": 112
+    },
+    "thinking.type=disabled": {
+      "total": 459,
+      "reasoning": 341
+    },
+    "chat_template_kwargs": {
+      "total": 460,
+      "reasoning": 342
+    }
+  },
+  "deepseek-flash": {
+    "baseline": {
+      "total": 211,
+      "reasoning": 147
+    },
+    "reasoning_effort=none": {
+      "total": 36,
+      "reasoning": 0
+    },
+    "reasoning_effort=low": {
+      "total": 208,
+      "reasoning": 144
+    },
+    "enable_thinking=false": {
+      "total": 171,
+      "reasoning": 105
+    },
+    "thinking.type=disabled": {
+      "total": 36,
+      "reasoning": 0
+    },
+    "chat_template_kwargs": {
+      "total": 380,
+      "reasoning": 317
+    }
+  },
+  "glm-5.2": {
+    "baseline": {
+      "total": 371,
+      "reasoning": 326
+    },
+    "reasoning_effort=none": {
+      "total": 38,
+      "reasoning": 0
+    },
+    "reasoning_effort=low": {
+      "total": 372,
+      "reasoning": 327
+    },
+    "enable_thinking=false": {
+      "total": 517,
+      "reasoning": 472
+    },
+    "thinking.type=disabled": {
+      "total": 38,
+      "reasoning": 0
+    },
+    "chat_template_kwargs": {
+      "total": 464,
+      "reasoning": 419
+    }
+  }
+}
