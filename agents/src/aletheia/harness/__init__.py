@@ -49,6 +49,8 @@ from aletheia.harness.adapter import (
     TaskResult,
     score_task,
 )
+from aletheia.harness.driver import DryRunSystem, aggregate_with_scores, run_benchmark
+from aletheia.harness.juiceshop import JuiceShopAdapter
 from aletheia.harness.metrics import (
     NEW_METRIC_NAMES,
     Metric,
@@ -81,14 +83,17 @@ __all__ = [
     "BaselineClaim",
     "BenchmarkAdapter",
     "BenchmarkTask",
+    "DryRunSystem",
     "FailureCase",
     "HarnessRun",
+    "JuiceShopAdapter",
     "Limitation",
     "Metric",
     "Report",
     "ReproducibilityManifest",
     "RunInputs",
     "TaskResult",
+    "aggregate_with_scores",
     "all_metrics",
     "attribution_accuracy",
     "build_report",
@@ -99,6 +104,7 @@ __all__ = [
     "precision",
     "recall",
     "reproduction_rate",
+    "run_benchmark",
     "scope_violation_rate",
     "score_task",
 ]
