@@ -94,6 +94,7 @@ type Config struct {
 	// 置 false，且**不得**暴露任何 UI 开关（07 §T8、09 §R7）。
 	// 禁用时启动日志必须高亮告警并写入审计（见 Validate）。
 	PrivacyGateway PrivacyGatewayConfig `mapstructure:"privacy_gateway"`
+	Sandbox        SandboxConfig        `mapstructure:"sandbox"`
 
 	// Logging 日志配置。
 	Logging LoggingConfig `mapstructure:"logging"`
@@ -157,6 +158,15 @@ type StorageConfig struct {
 	MapFile string `mapstructure:"map_file"`
 	// AuditLogFile 审计日志（append-only + 哈希链，08 §6.2）。
 	AuditLogFile string `mapstructure:"audit_log_file"`
+}
+
+// SandboxConfig 沙箱（M6 §7）。
+type SandboxConfig struct {
+	// ExecKeyFile Sandbox 签发 exec_id 的 Ed25519 私钥（hex 文件，
+	// 32 字节 raw）。对应公钥配置给 focalplane 的 G-1 验签。
+	// 为空时每次启动生成临时密钥对（公钥随启动日志输出）—— 适用于
+	// 测试；生产部署应固定密钥文件（focalplane 侧公钥才可预配）。
+	ExecKeyFile string `mapstructure:"exec_key_file"`
 }
 
 // AuthorizationConfig 授权凭证配置（08 §2）。
@@ -325,6 +335,7 @@ func setDefaults(v *viper.Viper, cfg *Config) {
 
 	// Privacy Gateway 默认开启（R7）。用指针区分"未配置"与"显式 false"。
 	v.SetDefault("privacy_gateway.enabled", true)
+	v.SetDefault("sandbox.exec_key_file", "")
 
 	v.SetDefault("logging.level", cfg.Logging.Level)
 	v.SetDefault("logging.format", cfg.Logging.Format)

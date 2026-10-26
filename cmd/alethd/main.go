@@ -277,6 +277,20 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 			Sandbox: ingest.NewProcessSandbox(ingest.DefaultSandboxTimeout),
 		}, rawStore)
 		registry.Scope = scopekernel.NewServer(kernel)
+
+		// M6 §7.2：SandboxService（05 §6.3，契约 frozen —— SignExecId
+		// 是 exec_id 签名的签发面，G-1 验签的对端）。密钥文件固定则
+		// 加载（focalplane 公钥可预配）；否则生成临时对并打印公钥。
+		execSigner, err := loadExecSigner(cfg)
+		if err != nil {
+			logger.Error("cannot load sandbox exec signer", zapErr(err))
+			return errConfig{err: err}
+		}
+		registry.Sandbox = ingest.NewSandboxService(
+			ingestCatalog, rawStore,
+			ingest.NewProcessSandbox(ingest.DefaultSandboxTimeout), execSigner)
+		logger.Info("sandbox service wired",
+			zap.String("exec_pubkey", execSigner.PublicKeyHex()))
 		logger.Info("scope kernel + privacy gateway wired",
 			zap.Int("include_rules", len(scope.Include)),
 			zap.Int("exclude_rules", len(scope.Exclude)))
@@ -568,4 +582,12 @@ func exitCodeFor(err error) int {
 	default:
 		return exitRuntimeError
 	}
+}
+
+// loadExecSigner 按 sandbox.exec_key_file 加载签发私钥；为空时生成临时对。
+func loadExecSigner(cfg *config.Config) (*ingest.ExecSigner, error) {
+	if path := cfg.Sandbox.ExecKeyFile; path != "" {
+		return ingest.LoadExecSignerFromFile(path)
+	}
+	return ingest.GenerateExecSigner()
 }
