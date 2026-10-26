@@ -1,90 +1,90 @@
 {
   "workload": {
-    "variants": 2,
+    "variants": 5,
     "weights": {
       "planning": 1,
       "analysis": 2,
       "parse_assist": 4,
       "rank": 4
     },
-    "calls_per_config": 22
+    "calls_per_config": 55
   },
   "single_model": {
     "config": "single-glm-5.2",
-    "calls": 22,
-    "errors": 4,
-    "elapsed_s": 272.6,
-    "total_tokens": 8910,
-    "reasoning_tokens": 7800,
+    "calls": 55,
+    "errors": 6,
+    "elapsed_s": 569.9,
+    "total_tokens": 25516,
+    "reasoning_tokens": 22665,
     "by_model": {
-      "glm-5.2": 8910
+      "glm-5.2": 25516
     },
     "by_tier": {
-      "analysis": 3645,
-      "parse_assist": 1610,
-      "planning": 660,
-      "rank": 2995
+      "analysis": 7475,
+      "planning": 3235,
+      "rank": 9597,
+      "parse_assist": 5209
     }
   },
   "tiered": {
     "config": "tiered-router",
-    "calls": 22,
-    "errors": 2,
-    "elapsed_s": 148.9,
-    "total_tokens": 7884,
-    "reasoning_tokens": 5989,
+    "calls": 55,
+    "errors": 12,
+    "elapsed_s": 407.8,
+    "total_tokens": 21153,
+    "reasoning_tokens": 16795,
     "by_model": {
-      "glm-5.2": 3689,
-      "deepseek-flash": 853,
-      "sensenova-6.8-flash-lite": 3342
+      "glm-5.2": 11229,
+      "sensenova-6.8-flash-lite": 8189,
+      "deepseek-flash": 1735
     },
     "by_tier": {
-      "analysis": 3395,
-      "parse_assist": 853,
-      "planning": 294,
-      "rank": 3342
+      "analysis": 8422,
+      "planning": 2807,
+      "rank": 8189,
+      "parse_assist": 1735
     }
   },
   "optimized": {
     "config": "optimized-router",
-    "calls": 22,
-    "errors": 0,
-    "elapsed_s": 180.8,
-    "total_tokens": 8312,
-    "reasoning_tokens": 6651,
+    "calls": 55,
+    "errors": 16,
+    "elapsed_s": 390.1,
+    "total_tokens": 17167,
+    "reasoning_tokens": 14291,
     "by_model": {
-      "glm-5.2": 4131,
-      "deepseek-flash": 4181
+      "glm-5.2": 11536,
+      "deepseek-flash": 5631
     },
     "by_tier": {
-      "analysis": 2961,
-      "parse_assist": 876,
-      "planning": 1170,
-      "rank": 3305
+      "analysis": 8632,
+      "planning": 2904,
+      "rank": 4110,
+      "parse_assist": 1521
     }
   },
   "tiered_reasoning_off": {
     "config": "tiered-reasoning-off",
-    "calls": 22,
-    "errors": 2,
-    "elapsed_s": 149.8,
-    "total_tokens": 7448,
-    "reasoning_tokens": 5808,
+    "calls": 55,
+    "errors": 6,
+    "elapsed_s": 433.4,
+    "total_tokens": 19336,
+    "reasoning_tokens": 15127,
     "by_model": {
-      "glm-5.2": 5221,
-      "deepseek-flash": 268,
-      "sensenova-6.8-flash-lite": 1959
+      "glm-5.2": 12537,
+      "sensenova-6.8-flash-lite": 6200,
+      "deepseek-flash": 599
     },
     "by_tier": {
-      "analysis": 3566,
-      "parse_assist": 268,
-      "planning": 1655,
-      "rank": 1959
+      "analysis": 7528,
+      "planning": 5009,
+      "rank": 6200,
+      "parse_assist": 599
     }
   },
-  "token_drop_pct_tiered": 11.52,
-  "token_drop_pct_optimized": 6.71,
-  "token_drop_pct_reasoning_off": 16.41,
+  "token_drop_pct_tiered": 17.1,
+  "token_drop_pct_optimized": 32.72,
+  "token_drop_pct_reasoning_off": 24.22,
   "dod2_pass_60pct": false,
   "note": "token 口径是货币成本降幅的下界估计（轻档单价通常更低）"
 }

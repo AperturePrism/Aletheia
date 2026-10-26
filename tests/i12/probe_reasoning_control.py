@@ -16,6 +16,7 @@ import os
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 BASE = os.environ.get("ALETHEIA_LLM_BASE", "https://token.sensenova.cn/v1")
 KEY = os.environ.get("ALETHEIA_LLM_KEY", "")
@@ -72,8 +73,8 @@ def main() -> int:
                 results[model][name] = {"error": str(exc)[:120]}
                 print(f"{model:28s} {name:24s} ERROR {str(exc)[:80]}")
             time.sleep(1.5)  # 渠道限流礼貌间隔
-    out = os.path.join(os.path.dirname(__file__), "reasoning_probe.json")
-    with open(out, "w", encoding="utf-8") as f:
+    out = Path(__file__).with_name("reasoning_probe.json")
+    with out.open("w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     print(f"\n结果已写入 {out}")
     # 自动小结：每个模型找出 reasoning 显著低于 baseline 的候选
