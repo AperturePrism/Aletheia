@@ -123,6 +123,45 @@ class TestRouter:
         assert r.model_for("planning") == "y"
 
 
+def test_router_mechanical_tiers_disable_reasoning():
+    """I12 推理控制：机械档位的模型命中控制表 → 请求体带关推理参数；
+    思考档位（planning/analysis）不附加 —— 推理保留是质量要求。"""
+    captured: list[dict] = []
+
+    def fake_urlopen(req, timeout=0):
+        captured.append(json.loads(req.data.decode()))
+        return _fake_response("ok")
+
+    led = CostLedger()
+    provider = OpenAICompatProvider("https://x.example/v1", "k", ledger=led)
+    router = Router(provider=provider)
+    with mock.patch("urllib.request.urlopen", fake_urlopen):
+        router.chat("rank", "排序 A B C")
+        router.chat("planning", "规划下一步")
+    rank_body, plan_body = captured
+    assert rank_body.get("enable_thinking") is False  # flash-lite 认的开关
+    assert "reasoning_effort" not in rank_body
+    assert "enable_thinking" not in plan_body  # 思考档不降级
+    assert "reasoning_effort" not in plan_body
+
+
+def test_router_extras_table_overridable():
+    """控制表可整体替换（不同渠道参数名差异显式注入）。"""
+    captured: list[dict] = []
+
+    def fake_urlopen(req, timeout=0):
+        captured.append(json.loads(req.data.decode()))
+        return _fake_response("ok")
+
+    provider = OpenAICompatProvider("https://x.example/v1", "k")
+    router = Router(
+        provider=provider, tier_extras={"deepseek-flash": {"thinking": {"type": "disabled"}}}
+    )
+    with mock.patch("urllib.request.urlopen", fake_urlopen):
+        router.chat("parse_assist", "提取端口")
+    assert captured[0].get("thinking") == {"type": "disabled"}
+
+
 @pytest.mark.llm_live
 def test_live_channel_smoke():
     key = os.environ.get("ALETHEIA_LLM_KEY")

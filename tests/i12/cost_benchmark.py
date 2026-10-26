@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agents" / "src"))
 
 from aletheia.providers.provider import (
+    DEFAULT_TIER_EXTRAS,
     DEFAULT_TIERS,
     CostLedger,
     OpenAICompatProvider,
@@ -85,7 +86,11 @@ def build_workload(variants_per_tier: int) -> list[tuple[str, str]]:
 
 
 def run_config(
-    name: str, tiers: dict[str, str], work: list[tuple[str, str]], mt: dict[str, int]
+    name: str,
+    tiers: dict[str, str],
+    work: list[tuple[str, str]],
+    mt: dict[str, int],
+    tier_extras: dict[str, dict] | None = None,
 ) -> dict:
     """跑一个配置。路由语义 = tiers 映射（Router.chat 的内部实现同款：
     model_for(tier) → provider.chat）；每个档位独立 Provider+Ledger，
@@ -103,8 +108,11 @@ def run_config(
     errors = 0
     for tier, prompt in work:
         model = tiers.get(tier, tiers["default"])
+        extras = (tier_extras or {}).get(model)
         try:
-            by_tier_provider[tier].chat(prompt, model=model, max_tokens=mt.get(tier, 2048))
+            by_tier_provider[tier].chat(
+                prompt, model=model, max_tokens=mt.get(tier, 2048), extras=extras
+            )
         except Exception as exc:  # noqa: BLE001 —— 基准须容忍单次失败并计数
             errors += 1
             print(f"  [{name}] {tier}/{model} 调用失败: {exc}", file=sys.stderr)
@@ -154,6 +162,15 @@ def main() -> int:
         "rank": "deepseek-flash",
     }  # 实测调优：flash-lite 的 reasoning 开销抵消轻档优势
     r_c = run_config("optimized-router", optimized, work, mt)
+    # 配置 D：分级路由 + 机械档位关推理（probe_reasoning_control.py 实测
+    # 渠道支持）—— 机械任务质量不依赖推理，关掉是纯收益。
+    r_d = run_config(
+        "tiered-reasoning-off",
+        dict(DEFAULT_TIERS),
+        work,
+        mt,
+        tier_extras=dict(DEFAULT_TIER_EXTRAS),
+    )
 
     def drop_pct(r: dict) -> float:
         return round((r_a["total_tokens"] - r["total_tokens"]) / r_a["total_tokens"] * 100, 2)
@@ -163,9 +180,11 @@ def main() -> int:
         "single_model": r_a,
         "tiered": r_b,
         "optimized": r_c,
+        "tiered_reasoning_off": r_d,
         "token_drop_pct_tiered": drop_pct(r_b),
         "token_drop_pct_optimized": drop_pct(r_c),
-        "dod2_pass_60pct": drop_pct(r_c) >= 60.0,
+        "token_drop_pct_reasoning_off": drop_pct(r_d),
+        "dod2_pass_60pct": drop_pct(r_d) >= 60.0,
         "note": "token 口径是货币成本降幅的下界估计（轻档单价通常更低）",
     }
     out = Path(__file__).with_name("last_run.json")

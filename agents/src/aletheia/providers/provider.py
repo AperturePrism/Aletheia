@@ -108,6 +108,7 @@ class Provider(Protocol):
         model: str,
         max_tokens: int,
         scan: Callable[[str], None] | None = None,
+        extras: dict | None = None,
     ) -> ChatResult: ...
 
 
@@ -141,16 +142,20 @@ class OpenAICompatProvider:
         model: str,
         max_tokens: int,
         scan: Callable[[str], None] | None = None,
+        extras: dict | None = None,
     ) -> ChatResult:
         if scan is not None:
             scan(prompt)  # R7：出站前扫描；命中即 scan 内抛错阻断
-        body = json.dumps(
-            {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-            }
-        ).encode()
+        payload: dict = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+        }
+        if extras:
+            # extras 是请求体级参数（推理控制等），由 Router 按档位注入
+            # （机械档位关推理 —— I12 成本实测 reasoning 占 73-80%）。
+            payload.update(extras)
+        body = json.dumps(payload).encode()
         # base_url 是部署配置注入的受信值（运营者设定，非用户输入），
         # scheme 由部署形态保证为 https —— S310 的审计点不适用，noqa 带理由。
         req = urllib.request.Request(  # noqa: S310
@@ -225,6 +230,17 @@ DEFAULT_TIERS: dict[str, str] = {
     "default": "deepseek-flash",
 }
 
+#: 机械档位（排序/解析辅助等）默认关闭模型推理 —— I12 成本实测
+#: reasoning token 占总消耗 73-80%，而这类任务不需要推理（质量不依赖）。
+#: 参数名按模型探测结果（tests/i12/probe_reasoning_control.py）：
+#: deepseek/glm 认 reasoning_effort=none；sensenova flash-lite 认
+#: enable_thinking=false。思考档位（planning/analysis）不配置 ——
+#: 保留推理是质量要求，不做隐性降级。
+DEFAULT_TIER_EXTRAS: dict[str, dict[str, dict]] = {
+    "deepseek-flash": {"reasoning_effort": "none"},
+    "sensenova-6.8-flash-lite": {"enable_thinking": False},
+}
+
 
 @dataclass
 class Router:
@@ -232,6 +248,9 @@ class Router:
 
     provider: Provider
     tiers: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_TIERS))
+    # 模型 → 请求体附加参数（推理控制）。键是模型名而非档位名：同一模型
+    # 服务多个档位时控制一致；不同渠道的参数名差异在表里显式呈现。
+    tier_extras: dict[str, dict] = field(default_factory=lambda: dict(DEFAULT_TIER_EXTRAS))
     max_tokens_by_tier: dict[str, int] = field(
         default_factory=lambda: {
             "planning": 4096,
@@ -249,6 +268,13 @@ class Router:
         self, tier: str, prompt: str, *, scan: Callable[[str], None] | None = None
     ) -> ChatResult:
         model = self.model_for(tier)
+        # 机械档位的模型命中推理控制表 → 关推理（显式表驱动，不猜参数名）；
+        # 思考档位（planning/analysis 等）不在表内即不附加 —— 推理保留。
+        extras = self.tier_extras.get(model)
         return self.provider.chat(
-            prompt, model=model, max_tokens=self.max_tokens_by_tier.get(tier, 2048), scan=scan
+            prompt,
+            model=model,
+            max_tokens=self.max_tokens_by_tier.get(tier, 2048),
+            scan=scan,
+            extras=extras,
         )
