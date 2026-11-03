@@ -1,0 +1,75 @@
+# CyBench 官方任务清单（逐字入库）
+#
+# 来源：https://github.com/andyzorigin/cybench
+#       文件：task_list.txt
+#       blob sha：29941d798ec6c6a96eeb8151112ca499d3ea5ea4（2608 bytes）
+#       获取时间：2026-11-03
+#       获取方式：raw.githubusercontent.com/andyzorigin/cybench/main/task_list.txt
+#
+# ★ 为什么把这份清单**逐字**存进仓库
+#
+# P2 门禁要求"公开基准可复现分数"。要复现，第一步是**任务清单必须来自
+# 官方而不是自己编**。把清单连来源（URL + blob sha）一起入库，任何人可以：
+#   1. 用 sha 校验这份清单没被改动；
+#   2. 用 URL 重新拉取并 diff。
+#
+# 没有这一步，"我们自己整理的任务列表"就无法证明与官方一致。
+#
+# ★ 这份清单**不含** ground truth
+#
+# CyBench 每个任务的答案（flag）在各任务目录里，不在本文件。本仓库
+# **不**代为搬运，理由：
+#   · 把 flag 抄进本仓库后，它就不再是"从官方取得"，而是"我们声称的"；
+#   · 复现时应由脚本从官方目录按需读取并校验（见 benchmarks/README.md §4）。
+#
+# 因此 benchmarks/cybench/tasks.json 目前**不会被创建** —— 适配器的
+# manifest 校验要求非空 ground_truth，缺它必须 fail-closed 而不是跑出
+# 一个"0 分"（0 分与"系统真的很差"无法区分）。
+#
+# ★ 运行状态：被渠道限流阻塞
+#
+# 2026-11-03 实测：LLM 渠道在约 46 次调用后持续返回 HTTP 429
+# （等待 1 小时后仍 429）。因此本基准**尚未运行**，也没有任何分数。
+# 这一点必须如实标注，不得用自建基准的数字冒充公开基准分数。
+#
+# ---- 以下为官方 task_list.txt 原文（未做任何增删）----
+benchmark/project-sekai-ctf/sekaictf-2023/crypto/noisier-crc
+benchmark/project-sekai-ctf/sekaictf-2023/misc/just-another-pickle-jail
+benchmark/project-sekai-ctf/sekaictf-2023/web/chunky
+benchmark/project-sekai-ctf/sekaictf-2023/pwn/network-tools
+benchmark/hackthebox/cyber-apocalypse-2024/crypto/[Very Easy] Primary Knowledge
+benchmark/hackthebox/cyber-apocalypse-2024/crypto/[Medium] Partial Tenacity
+benchmark/hackthebox/cyber-apocalypse-2024/crypto/[Very Easy] Dynastic
+benchmark/hackthebox/cyber-apocalypse-2024/forensics/[Very Easy] It Has Begun
+benchmark/hackthebox/cyber-apocalypse-2024/forensics/[Very Easy] Urgent
+benchmark/hackthebox/cyber-apocalypse-2024/misc/[Medium] Were Pickle Phreaks Revenge
+benchmark/hackthebox/cyber-apocalypse-2024/pwn/[Very Easy] Delulu
+benchmark/hackthebox/cyber-apocalypse-2024/reversing/[Very Easy] PackedAway
+benchmark/hackthebox/cyber-apocalypse-2024/reversing/[Easy] Crushing
+benchmark/hackthebox/cyber-apocalypse-2024/reversing/[Hard] FlecksOfGold
+benchmark/LosFuzzys/GlacierCTF2023_writeups/crypto/MissingBits
+benchmark/LosFuzzys/GlacierCTF2023_writeups/crypto/SLCG
+benchmark/LosFuzzys/GlacierCTF2023_writeups/crypto/WalkingToTheSeaSide
+benchmark/LosFuzzys/GlacierCTF2023_writeups/crypto/shuffled-aes
+benchmark/LosFuzzys/GlacierCTF2023_writeups/intro/skilift
+benchmark/LosFuzzys/GlacierCTF2023_writeups/misc/avatar
+benchmark/LosFuzzys/GlacierCTF2023_writeups/rev/rpgo
+benchmark/LosFuzzys/GlacierCTF2023_writeups/rev/sop
+benchmark/LosFuzzys/GlacierCTF2023_writeups/web/GlacierExchange
+benchmark/project-sekai-ctf/sekaictf-2022/crypto/diffecient
+benchmark/project-sekai-ctf/sekaictf-2022/crypto/robust-cbc
+benchmark/project-sekai-ctf/sekaictf-2022/crypto/ezmaze
+benchmark/project-sekai-ctf/sekaictf-2023/crypto/randsubware
+benchmark/project-sekai-ctf/sekaictf-2023/web/frog-waf
+benchmark/hackthebox/cyber-apocalypse-2024/forensics/[Medium] Data Siege
+benchmark/hkcert-ctf/CTF-Challenges/CTF-2022/05-motp
+benchmark/hackthebox/cyber-apocalypse-2024/web/[Easy] Labyrinth Linguist
+benchmark/hackthebox/cyber-apocalypse-2024/reversing/[Very Easy] LootStash
+benchmark/hackthebox/cyber-apocalypse-2024/crypto/[Hard] Permuted
+benchmark/hkcert-ctf/CTF-Challenges/CTF-2022/22-back-to-the-past
+benchmark/hackthebox/cyber-apocalypse-2024/web/[Very Easy] Flag Command
+benchmark/hackthebox/cyber-apocalypse-2024/misc/[Easy] Unbreakable
+benchmark/hackthebox/cyber-apocalypse-2024/web/[Medium] LockTalk
+benchmark/project-sekai-ctf/sekaictf-2023/crypto/noisy-crc
+benchmark/project-sekai-ctf/sekaictf-2023/forensics/eval-me
+benchmark/project-sekai-ctf/sekaictf-2022/crypto/failproof
