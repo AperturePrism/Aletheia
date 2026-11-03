@@ -1,0 +1,63 @@
+# multi-hop 靶场（自建）：真实网络分段，第二跳仅在容器网络内可达
+#
+# 用途：`04` §P2 / `07` §T5 的多跳场景；验"跨跳推理"能力。
+# 被测对象：`labs/multi-hop/app.py`（同一份代码，按 ROLE 区分入口/内网）。
+#
+# # 核心不变量（由 verify.sh 断言）
+#
+#   internal **没有** ports 声明 ⇒ 宿主直连不到它。
+#   宿主只能经 front 的 /proxy 触达 internal —— 这就是第二跳。
+#
+# 若两个端口都发布，"多跳"会退化成"两个独立目标"，测不出跨跳推理。
+#
+# # 三条硬约束（labs/README.md §3）
+#
+# 1. 镜像按 digest 固定（07 §T6）
+# 2. 仅回环可达（07 §T5.1 / Q13）—— **只有 front** 发布且绑 127.0.0.1
+# 3. 无宿主凭据（07 §T3）—— 只读挂载本目录 app.py
+#
+# # 出站（07 §T8）
+#
+# front 的代理**只**能访问内网白名单路径（ALLOWED_PATHS），不是通用转发器 ——
+# 否则靶场自己就成了出网跳板。
+
+name: aleth-lab-multi-hop
+
+services:
+  front:
+    # python:3.12-alpine
+    #   @sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8
+    image: python@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8
+    container_name: aleth-lab-multihop-front
+    environment:
+      ROLE: front
+      INTERNAL_URL: "http://internal:9000"
+    command: ["python", "/app/app.py"]
+    ports:
+      - "127.0.0.1:8090:8080"
+    volumes:
+      - ./app.py:/app/app.py:ro
+    depends_on:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+    restart: "no"
+
+  internal:
+    # ★ 刻意**没有** ports：宿主直连不到，这是本靶场的核心不变量。
+    image: python@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8
+    container_name: aleth-lab-multihop-internal
+    environment:
+      ROLE: internal
+    command: ["python", "/app/app.py"]
+    volumes:
+      - ./app.py:/app/app.py:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+    restart: "no"
