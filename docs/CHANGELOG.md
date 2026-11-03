@@ -9,6 +9,41 @@
 
 ## [Unreleased]
 
+### 决策 · I12 降本口径定案 + 货币口径核算机制（DEC-2026-11-03）（2026-11-03）
+
+> `04` §I12 DoD② 写着"成本降 ≥60%"，**却没写明是 token 还是货币口径**，
+> 而两者结论相反：token 已证明不可达（32.72%），货币大概率可达但缺报价数据。
+> 口径未定 = 任何"降本 X%"都不可核对。
+
+**决策**（`docs/decisions/DEC-2026-11-03-i12-cost-basis.md`）：
+
+- **主判据（门禁）= 货币口径成本降 ≥60%** —— 成本的经济含义是花了多少钱。
+- **副判据（下限）= token 口径降 ≥30%** —— **已达成（32.72%）**，
+  且不依赖外部报价数据，同时约束"全换最便宜模型"的倾向。
+
+**为什么不再只挂 token 口径的 60%**：该目标已被证明不可达
+（推理 token 占基线 89%；思考档占权重 27% 且推理保留是质量要求）。
+让不可达的判据长期挂在门禁上，会诱发"无限期阻塞 I13"或"为凑绿改判据"
+两类更糟的行为 —— 后者正是 `docs/09` §R2 与 `docs/10` §0 禁止的。
+
+**Added**
+- `agents/src/aletheia/providers/pricing.py` —— 货币口径核算：
+  - `ModelPrice` / `Pricing` / `CostBreakdown` / `currency_cost` / `reduction_ratio`
+  - **缺单价 fail-closed**：抛 `UnpricedModelError`，**不默认 0、不做部分核算**
+    （部分核算的总额偏小，却看起来像个完整数字 —— 这是成本模块最危险的失败模式）
+  - **推理 token 不重复计价**：`reasoning_tokens` 是 `completion_tokens` 的子集，
+    再算一次会让推理型模型成本翻倍（有专门断言）
+  - **混币种不得相比**：`reduction_ratio` 在币种不一致时抛错
+  - **可复现**：成本结论带 `pricing_source` / `pricing_version`
+- `pricing.example.json` + 加载器**拒绝示例表**（source 以 EXAMPLE 开头即拒）——
+  防"用编的单价算出漂亮数字"。
+
+**Tests**：`agents/tests/providers/test_pricing.py` —— 16 个用例，
+重点在"会让成本数字变小的三类错误"（缺价当 0 / 推理重复计价 / 混币种相加）。
+
+**仍未产出**：**货币口径的真实数值** —— 需操作者填入渠道报价
+（报价页或账单导出）。在此之前 DoD② 不得标记为达成。
+
 ### 【contract:】补齐三个已登记的契约缺口 + Plan 未生成 graph_id（2026-11-03）
 
 > **⚠️ 本契约变更按 `docs/09` R1 需双人 review（其中一人为 M4 反幻觉负责人）。
