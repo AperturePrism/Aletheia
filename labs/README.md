@@ -1,10 +1,41 @@
 # labs/ —— 自建靶场
 
-> **当前状态：四个靶场目录均为空，未提供任何 compose 编排。**
-> P2 阶段门禁需要"业务逻辑首个可复现数字"，而它必须跑在靶场上 ——
-> 因此门禁仍未通过。原因：本机**没有 docker**。
+> **状态（2026-11-03 更新）：可运行。** docker 已在 **WSL2(Arch)** 内装好并验证，
+> 两个靶场已落地并实跑：
+>
+> | 靶场 | 状态 | 说明 |
+> |---|---|---|
+> | `juice-shop/` | ✅ 可运行 | 镜像 digest 固定；`/rest/admin/application-version` → `{"version":"17.1.1"}` |
+> | `bizlogic/` | ✅ 可运行 + **已出真实数字** | 六类缺陷（BL1–BL6）实测全可复现；检测基准见 `bizlogic/README.md` §4 |
+> | `multi-hop/` | ⬜ 未建 | 见 §2 的用途说明与 §4 的实现步骤 |
+> | `antifantasy/` | ⬜ 未建 | 同上 |
+>
+> **P2 阶段门禁**：`bizlogic` 已产出门禁要求的「业务逻辑首个可复现数字」；
+> 「公开基准可复现分数」仍需 `benchmarks/` 的真实任务清单（见该目录 README）。
 
-真源：`docs/04` §P2 阶段门禁 ｜ `docs/modules/M9-评测框架.md` §8 ｜ `docs/07` §T6
+真源：`docs/04` §P2 阶段门禁 ｜ `docs/modules/M9-评测框架.md` §8 ｜ `docs/07` §T3/T5.1/T6/T8
+
+---
+
+## 0. 环境前提（重要）
+
+本机的 docker **不在 Windows 侧**，而在 **WSL2 的 Arch 发行版内**：
+
+```bash
+# 一次性：启动 daemon（未启用 systemd 的项目，或 systemctl start docker）
+wsl -d Arch -- bash -lc "nohup dockerd > /tmp/dockerd.log 2>&1 &"
+
+# 之后用脚本起停靶场
+wsl -d Arch -- bash scripts/labs-up.sh juice-shop bizlogic
+wsl -d Arch -- bash scripts/labs-up.sh --down bizlogic
+```
+
+`scripts/labs-up.sh` 会在起靶场前**机械校验**三条硬约束
+（digest 固定 / 仅回环 / 无宿主凭据），不合规直接拒绝 —— 见 §3。
+
+WSL2 会把 `127.0.0.1` 上的监听端口转发到 Windows，因此 Windows 侧的
+Python/CLI 可以直接访问 `http://127.0.0.1:<port>`（实测 `bizlogic` 的
+`/health` 在 Windows 侧返回 200）。
 
 ---
 

@@ -1,0 +1,42 @@
+# bizlogic 靶场（自建）：六类业务逻辑缺陷的可复现目标
+#
+# 用途：`docs/04` §P2 门禁的「业务逻辑首个可复现数字」。
+# 被测对象：`labs/bizlogic/app.py`（BL1–BL6，逐条在源码注释里标注）。
+#
+# # 三条硬约束（labs/README.md §3）
+#
+# 1. **镜像按 digest 固定**（07 §T6）—— 见下方 image 行。
+# 2. **仅回环可达**（07 §T5.1 / Q13）—— `127.0.0.1:8080:8080`。
+# 3. **无宿主凭据**（07 §T3）—— 只挂载本目录的 app.py（只读），
+#    不挂 docker.sock / ~/.ssh / 任何凭据文件。
+#
+# # 状态重置（M9 §8）
+#
+# 应用状态全在内存，容器重建即归零。`scripts/labs-up.sh` 会先
+# `down -v` 再 `up`，因此每轮评测都从同一初始状态开始 ——
+# 这是"分数可复现"的前提。
+
+name: aleth-lab-bizlogic
+
+services:
+  bizlogic:
+    # python:3.12-alpine
+    #   @sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8
+    image: python@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8
+    container_name: aleth-lab-bizlogic
+    # 标准库实现，无第三方依赖 —— 因此不需要 pip install，
+    # 镜像固定后行为永不漂移。
+    command: ["python", "/app/app.py"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # 只读挂载靶场源码：容器内无法修改它（也就无法"自我修复"）。
+      - ./app.py:/app/app.py:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256m
+    # 无 healthcheck：就绪判定由 scripts/labs-up.sh 在宿主侧做
+    # （见 labs/juice-shop/compose.yml 里对 distroless 镜像的说明）。
+    restart: "no"
