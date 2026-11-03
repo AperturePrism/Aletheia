@@ -51,6 +51,13 @@ from aletheia.harness.adapter import (
 )
 from aletheia.harness.driver import DryRunSystem, aggregate_with_scores, run_benchmark
 from aletheia.harness.juiceshop import JuiceShopAdapter
+from aletheia.harness.manifest_adapter import (
+    Manifest,
+    ManifestBenchmarkAdapter,
+    ManifestError,
+    TargetUnavailableError,
+    load_manifest,
+)
 from aletheia.harness.metrics import (
     NEW_METRIC_NAMES,
     Metric,
@@ -88,10 +95,14 @@ __all__ = [
     "HarnessRun",
     "JuiceShopAdapter",
     "Limitation",
+    "Manifest",
+    "ManifestBenchmarkAdapter",
+    "ManifestError",
     "Metric",
     "Report",
     "ReproducibilityManifest",
     "RunInputs",
+    "TargetUnavailableError",
     "TaskResult",
     "aggregate_with_scores",
     "all_metrics",
@@ -101,6 +112,7 @@ __all__ = [
     "entity_recall",
     "false_negative_rate",
     "hallucination_rate",
+    "load_manifest",
     "precision",
     "recall",
     "reproduction_rate",
