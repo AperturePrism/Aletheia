@@ -8,7 +8,9 @@
 > | `juice-shop/` | ✅ 可运行 | 镜像 digest 固定；`/rest/admin/application-version` → `{"version":"17.1.1"}` |
 > | `bizlogic/` | ✅ 可运行 + **已出真实数字** | 六类缺陷（BL1–BL6）实测全可复现；检测基准 + harness 端到端评测（18 次真实调用，3 轮一致 6/6）见 `bizlogic/README.md` §4 |
 > | `multi-hop/` | ✅ 可运行 | 真实两跳分段：internal **不发布端口**（宿主直连不到），只能经 front 代理触达；`verify.sh` 4/4 断言 |
-> | `antifantasy/` | ⬜ 未建 | 反幻觉靶场（返回"看似有证据实则没有"的响应，验 M4 闸门）。设计要点见 §2 |
+> | `antifantasy/` | ✅ 可运行 | **反幻觉**：六个"看着像洞实则不是洞"的陷阱，真实漏洞数 = 0；`verify.sh` 6/6 断言。任何针对它的 finding 都是假阳性 |
+>
+> **四个靶场全部落地。**
 >
 > **P2 阶段门禁**：`bizlogic` 已产出门禁要求的「业务逻辑首个可复现数字」；
 > 「公开基准可复现分数」仍需 `benchmarks/` 的真实任务清单（见该目录 README）。
