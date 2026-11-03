@@ -55,7 +55,6 @@ from aletheia.intent.live_probe import HttpProber  # noqa: E402
 from aletheia.providers.provider import (  # noqa: E402
     CostLedger,
     OpenAICompatProvider,
-    Router,
 )
 
 #: task_id → 对应的真实探测（观测来源固定，保证可复现）。
@@ -111,23 +110,47 @@ def _git_sha() -> str:
         return "unknown"
 
 
-def _build_router(model: str, ledger: CostLedger) -> Router:
-    base = os.environ["ALETHEIA_LLM_BASE"]
-    key = os.environ["ALETHEIA_LLM_KEY"]
-    provider = OpenAICompatProvider(base_url=base, api_key=key, ledger=ledger)
-    return Router(
-        provider=provider,
-        tiers=dict.fromkeys(("planning", "analysis", "parse_assist", "rank", "default"), model),
-        tier_extras={},
+#: 归类调用的 max_tokens。
+#:
+#: ★ 但必须记下一件事：我一度把"大批失败"归因于这个额度，那是**错的**。
+#:
+#: 逐档实测（见本轮记录）：
+#:     max_tokens=16    → empty content（额度确实不够）
+#:     max_tokens=512    → HTTP 429 Too Many Requests
+#:     max_tokens=1024   → HTTP 429
+#:     max_tokens=2048   → HTTP 429
+#:     max_tokens=4096   → HTTP 429
+#:
+#: 即 512 以上全是**限流**。我在 34 轮稳定性评测里看到"前 7 轮正常、
+#: 第 8 轮起全挂"，第一个错误信息是 empty content，就顺着它下了
+#: "max_tokens 太小"的结论 —— 没有去看后面那些错误的真实文案。
+#:
+#: **只看第一条错误就归因，会得到一个听起来很合理但完全错误的解释。**
+#: 真实原因是渠道在约 46 次调用后触发 429。
+CLASSIFY_MAX_TOKENS = 2048
+
+
+def _build_provider(ledger: CostLedger) -> OpenAICompatProvider:
+    return OpenAICompatProvider(
+        base_url=os.environ["ALETHEIA_LLM_BASE"],
+        api_key=os.environ["ALETHEIA_LLM_KEY"],
+        ledger=ledger,
     )
 
 
 class LiveClassifierSystem:
     """被测系统：真实探测 + 真实 LLM 归类。"""
 
-    def __init__(self, base: str, router: Router, ledger: CostLedger) -> None:
+    def __init__(
+        self,
+        base: str,
+        provider: OpenAICompatProvider,
+        model: str,
+        ledger: CostLedger,
+    ) -> None:
         self.prober = HttpProber(base=base)
-        self.router = router
+        self.provider = provider
+        self.model = model
         self.ledger = ledger
         self.calls = 0
 
@@ -156,7 +179,14 @@ class LiveClassifierSystem:
         before = self.ledger.total_tokens()
         prompt = CLASSIFY_PROMPT.format(description=task.description, observation=observation)
         try:
-            res = self.router.chat("parse_assist", prompt)
+            # 直接调 provider 而不是走 Router：需要显式给足 max_tokens
+            # （见 CLASSIFY_MAX_TOKENS 的说明），同时保留 parse_assist 档位归因。
+            res = self.provider.chat(
+                prompt,
+                model=self.model,
+                max_tokens=CLASSIFY_MAX_TOKENS,
+                task_tier="parse_assist",
+            )
             self.calls += 1
         except Exception as exc:  # noqa: BLE001 —— 单任务失败要结构化归档
             return TaskResult(
@@ -210,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
 
     adapter = ManifestBenchmarkAdapter(_REPO / args.manifest)
     ledger = CostLedger()
-    system = LiveClassifierSystem(args.base, _build_router(args.model, ledger), ledger)
+    system = LiveClassifierSystem(args.base, _build_provider(ledger), args.model, ledger)
 
     manifest = ReproducibilityManifest(
         system_version=_git_sha(),
