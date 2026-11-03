@@ -1,0 +1,51 @@
+{
+  "benchmark": "bizlogic",
+  "version": "1.0.0",
+  "source": "self-built lab: labs/bizlogic/app.py（六类缺陷在源码内逐条标注）",
+  "target": "http://127.0.0.1:8080",
+  "requires_docker": true,
+  "tasks": [
+    {
+      "task_id": "bl1-order-idor",
+      "description": "判断 GET /api/orders/{id} 是否存在越权访问：普通用户 alice 能否读到 bob 的订单 200",
+      "difficulty": "easy",
+      "ground_truth": ["BL1_IDOR"],
+      "category": "bizlogic"
+    },
+    {
+      "task_id": "bl2-client-total",
+      "description": "判断 POST /api/checkout 是否存在金额篡改：提交 total=0.01 后订单金额是否就是 0.01",
+      "difficulty": "medium",
+      "ground_truth": ["BL2_TAMPERING"],
+      "category": "bizlogic"
+    },
+    {
+      "task_id": "bl3-skip-payment",
+      "description": "判断 POST /api/orders/{id}/ship 是否存在流程绕过：CREATED 状态的订单 100 能否直接变为 SHIPPED（跳过 PAID）",
+      "difficulty": "medium",
+      "ground_truth": ["BL3_FLOW_BYPASS"],
+      "category": "bizlogic"
+    },
+    {
+      "task_id": "bl4-quota-reset",
+      "description": "判断 POST /api/coupon/redeem 是否存在配额绕过：配额为 2，带 reset=1 反复请求能否超过 2 次仍成功",
+      "difficulty": "medium",
+      "ground_truth": ["BL4_QUOTA_BYPASS"],
+      "category": "bizlogic"
+    },
+    {
+      "task_id": "bl5-header-promote",
+      "description": "判断 POST /api/admin/users/{id}/promote 是否存在权限提升：普通用户 bob 带 X-Forwarded-Role: admin 能否把自己提为管理员",
+      "difficulty": "hard",
+      "ground_truth": ["BL5_PRIVILEGE_CHAIN"],
+      "category": "bizlogic"
+    },
+    {
+      "task_id": "bl6-double-spend",
+      "description": "判断 POST /api/transfer 是否存在竞态双花：并发两笔 800 元转账后 bob 余额（原 1000）是否变成负数",
+      "difficulty": "hard",
+      "ground_truth": ["BL6_RACE"],
+      "category": "bizlogic"
+    }
+  ]
+}

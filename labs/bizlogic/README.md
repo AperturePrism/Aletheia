@@ -99,6 +99,47 @@ BL2 的 ground truth 标记为 `detectable_in={WITH_CONTRACT}`，理由是：
 
 ---
 
+## 4.3 M9 harness 端到端评测（真实 LLM 在环）
+
+```bash
+# 每轮前**必须**重启靶场（内部强制 down -v），否则分数会退化为恒真（见下）
+wsl -d Arch -- bash scripts/labs-up.sh bizlogic
+ALETHEIA_LLM_KEY=… ALETHEIA_LLM_BASE=… ALETHEIA_LLM_MODEL=deepseek-v4.1-flash \
+  .venv/Scripts/python.exe scripts/bench-harness.py --out labs/bizlogic/harness_run_1.json
+```
+
+**实测（2026-11-03，3 轮独立运行，每轮前重启靶场）**：
+
+| 轮 | solved | 真实 LLM 调用 | tokens | 墙钟 |
+|---|---|---|---|---|
+| 1 | **6/6** | 6 | 2175 | 8.0s |
+| 2 | **6/6** | 6 | 2191 | 8.5s |
+| 3 | **6/6** | 6 | 2235 | 9.4s |
+| 合计 | 3/3 轮一致 | **18** | **6601** | ~26s |
+
+六类全部归类正确（BL1→`BL1_IDOR` … BL6→`BL6_RACE`），三轮结果完全一致。
+按档位归因正确（`parse_assist`）—— 这也顺带验证了本轮之前修的
+"档位未传给 Provider"缺陷在真实调用路径上确实生效。
+
+**关于调用次数**：这是 **18 次**，不是"200+"。原因不是省事，而是
+**凑数没有信息量**：同一清单重复 34 轮只会得到同样的 6/6。
+有信息量的是"独立重启后的重复"，本表已给 3 轮。
+
+**★ 一个必须记住的坑**：我最初加了 `--repeats` 参数在同一靶场上连跑两轮，
+第 2 轮仍然是 6/6 —— 但那是**假稳定**：
+
+* BL3 的订单第 1 轮已被改成 `SHIPPED`，第 2 轮再 ship 仍返回 `SHIPPED`（同义反复）；
+* BL6 双花后余额已是 `-600`，第 2 轮转账因余额不足失败，但"余额为负"这个
+  判据依然成立 ⇒ 看起来"检出成功"，实际什么都没测。
+
+因此 `--repeats` 已被**移除**，改为"一次调用 = 一次重启"。这类
+"分数看起来稳定、实则恒真"的失真，比数字偏低更难发现。
+
+**本节的数字口径**：`solved` = 模型对**已观测异常**的归类正确，
+**不是**"系统自主发现了异常"。观测由 `live_probe` 的确定性探测给出。
+
+---
+
 ## 5. ★ 证据等级声明（引用本页任何数字时必须附带）
 
 本次探测由 `agents/src/aletheia/intent/live_probe.py` 直接发起 HTTP 请求，

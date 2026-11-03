@@ -160,6 +160,17 @@ class ManifestBenchmarkAdapter(BenchmarkAdapter):
     "跑完一轮、报告 0 分"，因为那与"系统真的很差"无法区分。
     """
 
+    #: 状态重置由**外部**（容器重建）承担。
+    #:
+    #: `driver.run_benchmark` 会读这个标记：为真时任务间跳过 `reset()` ——
+    #: 因为本适配器**无法**在进程内重置靶场（见下方 `reset()`）。
+    #:
+    #: 这不是"假装已重置"：`scripts/labs-up.sh` 每次评测前强制 `down -v`
+    #: 把靶场重建，因此重置确实发生了，只是发生在容器层而非本对象里。
+    #: 若不声明它，驱动器会调用 `reset()` 并抛 `NotImplementedError`，
+    #: 整场评测直接失败 —— 那会把"重置方式不同"变成"不能跑"。
+    reset_is_external: bool = True
+
     def __init__(self, manifest_path: Path) -> None:
         self._path = Path(manifest_path)
         self._manifest = load_manifest(self._path)

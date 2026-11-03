@@ -203,3 +203,15 @@ def test_teardown_is_a_noop_not_a_lie(tmp_path: Path) -> None:
     # 靶场生命周期归 compose 管；teardown 无事可做是正确语义。
     a = ManifestBenchmarkAdapter(_mk(tmp_path, "cybench", _good()))
     assert a.teardown() is None
+
+
+def test_adapter_declares_reset_as_external(tmp_path: Path) -> None:
+    """★ 必须声明 `reset_is_external=True`，否则驱动器会调 `reset()` 并抛错。
+
+    `driver.run_benchmark` 读这个标记决定任务间是否调 `reset()`。
+    本适配器的重置发生在**容器层**（`labs-up.sh` 的 `down -v`），
+    进程内做不到 —— 若不声明，整场评测会在第一个 `reset()` 处失败，
+    把"重置方式不同"变成"不能跑"。
+    """
+    a = ManifestBenchmarkAdapter(_mk(tmp_path, "cybench", _good()))
+    assert getattr(a, "reset_is_external", False) is True
