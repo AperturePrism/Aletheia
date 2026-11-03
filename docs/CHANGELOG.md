@@ -9,6 +9,67 @@
 
 ## [Unreleased]
 
+### 【contract:】补齐三个已登记的契约缺口 + Plan 未生成 graph_id（2026-11-03）
+
+> **⚠️ 本契约变更按 `docs/09` R1 需双人 review（其中一人为 M4 反幻觉负责人）。
+> 本地提交时**尚未取得该 review**，因此本条目状态为「待评审」。
+> 在评审通过前，后续实现不得把它当作已生效契约。**
+
+**背景**：CHANGELOG 早前（2026-10-12）登记了三个缺口，当时按 R1
+**未自造 RPC、未改 proto**，只在页面上如实留空。本次按正规流程补齐。
+
+#### Added（契约新增，纯增量）
+
+| # | 新增 | 解决的缺口 |
+|---|---|---|
+| 1 | `OrchestratorService.GetGraph(session_id, graph_id) → TaskGraph` | 决策队列（`06` 页面 7）此前无法读取整图，只能消费 `NextReady.blocked_reasons`，渲染不出 `06` §7.1 的四要素卡片 |
+| 2 | `OrchestratorService.ListSessions(limit, cursor) → SessionSummary[]` | 会话总览（`06` 页面 1）此前**无法枚举会话** —— 全契约唯一带 List 语义的方法是 `ListAdapters` |
+| 3 | `AssembleRequest` 增 `max_hops` / `max_entities` / `depth_per_entity` | 连续调节此前只能走进程内 API，gRPC 调用方与 MCP 的 `assemble_context` 只能三档 |
+
+新增消息：`GetGraphRequest` / `ListSessionsRequest` / `ListSessionsResponse` / `SessionSummary`。
+
+**兼容性**：全部为纯增量（新 RPC + 新字段，字段号 7/8/9 未占用）。
+旧客户端不发送新字段（=0）时行为与变更前完全一致。
+
+#### Fixed（实现侧发现的真缺陷）
+
+- **`Plan` 从不生成 `graph_id`**：`NewGraph` 直接采用调用方给的
+  `graph_id`，调用方不给就留空。而 `NextReady` / `GetGraph` /
+  检查点全都要它 —— 实测后果是 **Python 执行侧拿到空值后按
+  "空即失败"处理，整场渗透在第一步就中断**，且错误信息指向
+  "没拿到 graph_id"，看不出根因在 `Plan`。
+  - 修法：缺失时按**内容哈希**派生（`g_<session>_<12hex>`），
+    只纳入结构性字段（任务 id / 依赖 / 角色 / 预算）。
+  - 为什么用哈希而非 `Server.seq` 自增：自增会让同一份计划在不同
+    进程生命周期里得到不同 ID，**直接违背 P-5**（检查点/rewind/fork
+    都比对图版本）。
+  - 为什么忽略标题/目标文本：改一个错别字不该让图身份变掉，
+    否则已有检查点会失联。
+
+#### 迁移步骤
+
+1. **生成物已重生成**（`make proto`，Go/Python/TS 三侧），
+   `make check-gen-fresh` 通过。
+2. **无需迁移已有数据**：`graph_id` 为空的历史图在下次 `Plan` 时
+   自动获得派生 ID；`ListSessions` 对"有会话但无任务图"的情况
+   返回 `status="UNPLANNED"`（不是错误，如实表示尚未规划）。
+3. **调用方**：`GetGraph` 显式传 `graph_id` 时若不匹配当前图，
+   返回 `NOT_FOUND` 而非"返回当前图当没事"（避免页面拿历史版本
+   的名义渲染另一个版本）。
+4. **`ListSessions` 的 budget/findings 字段可能为空**：Go 进程内
+   拿不到 Python 侧账本的 finding 计数，`sessionSourceAdapter`
+   如实返回"未提供"，字段留空而**不填 0**（假的 0 与真的 0 无法区分）。
+
+#### 未纳入本次变更（诚实说明）
+
+- **`aperture=off` 全量注入调试开关**（`04` §I5 DoD⑦）**没有**加成契约字段。
+  原因：它与"曝光上限 200 / 禁止又宽又深"的安全不变量直接冲突，
+  正确实现需要一条**显式绕过该不变量并在审计里标记**的路径。
+  给契约加一个"永远报错"的字段是陷阱，因此留给独立的后续变更。
+
+**Tests**：`core/orchestrate/sessions_test.go`（16）+ `graphid_test.go`（7）
++ `core/aperture/contract_overrides_test.go`（4）。
+
 ### CI 供应链加固（`07` §T6 的两条未落实缓解）（2026-10-12）
 
 > 继续"逐条核对威胁模型缓解措施"的方法。本轮核对 T6 的四个变体，
@@ -430,6 +491,10 @@ redline 门禁由 33 → **41 passed**。
   按维护铁律保留判断痕迹，不抹掉"曾经漏了"这个事实。
 
 ### 已登记的三个契约缺口（需 `contract:` PR，2026-10-12）
+
+> **后续（2026-11-03）**：三个缺口已按 R1 流程在独立 `contract:` 提交中补齐，
+> 见本文件顶部「【contract:】补齐三个已登记的契约缺口」。
+> 下方内容保留原样，作为"当时确实没有自造 RPC"的记录。
 
 > 按 `docs/09` R1（契约冻结）**未自造 RPC、未改 `proto/`**。
 > 两个缺口都在页面上显式声明，未知字段留空并说明（不编造）。

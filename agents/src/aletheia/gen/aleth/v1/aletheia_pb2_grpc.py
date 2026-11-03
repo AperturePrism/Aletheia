@@ -1045,6 +1045,16 @@ class OrchestratorServiceStub:
                 request_serializer=aleth_dot_v1_dot_aletheia__pb2.ForkRequest.SerializeToString,
                 response_deserializer=aleth_dot_v1_dot_aletheia__pb2.ForkResult.FromString,
                 _registered_method=True)
+        self.GetGraph = channel.unary_unary(
+                '/aleth.v1.OrchestratorService/GetGraph',
+                request_serializer=aleth_dot_v1_dot_aletheia__pb2.GetGraphRequest.SerializeToString,
+                response_deserializer=aleth_dot_v1_dot_aletheia__pb2.TaskGraph.FromString,
+                _registered_method=True)
+        self.ListSessions = channel.unary_unary(
+                '/aleth.v1.OrchestratorService/ListSessions',
+                request_serializer=aleth_dot_v1_dot_aletheia__pb2.ListSessionsRequest.SerializeToString,
+                response_deserializer=aleth_dot_v1_dot_aletheia__pb2.ListSessionsResponse.FromString,
+                _registered_method=True)
 
 
 class OrchestratorServiceServicer:
@@ -1096,6 +1106,24 @@ class OrchestratorServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetGraph(self, request, context):
+        """[contract:2026-11-02] 只读：读取任务图。
+        背景：决策队列（06 页面 7）需渲染四要素卡片，而契约此前只有"写"，
+        无法读取整图。只读、幂等、无副作用。
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListSessions(self, request, context):
+        """[contract:2026-11-02] 只读：列出会话。
+        背景：会话总览（06 页面 1）需会话列表；此前全契约唯一带 List 语义的
+        方法是 ListAdapters，无法枚举会话。只读、幂等。
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_OrchestratorServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -1133,6 +1161,16 @@ def add_OrchestratorServiceServicer_to_server(servicer, server):
                     servicer.Fork,
                     request_deserializer=aleth_dot_v1_dot_aletheia__pb2.ForkRequest.FromString,
                     response_serializer=aleth_dot_v1_dot_aletheia__pb2.ForkResult.SerializeToString,
+            ),
+            'GetGraph': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetGraph,
+                    request_deserializer=aleth_dot_v1_dot_aletheia__pb2.GetGraphRequest.FromString,
+                    response_serializer=aleth_dot_v1_dot_aletheia__pb2.TaskGraph.SerializeToString,
+            ),
+            'ListSessions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListSessions,
+                    request_deserializer=aleth_dot_v1_dot_aletheia__pb2.ListSessionsRequest.FromString,
+                    response_serializer=aleth_dot_v1_dot_aletheia__pb2.ListSessionsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1326,6 +1364,60 @@ class OrchestratorService:
             '/aleth.v1.OrchestratorService/Fork',
             aleth_dot_v1_dot_aletheia__pb2.ForkRequest.SerializeToString,
             aleth_dot_v1_dot_aletheia__pb2.ForkResult.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetGraph(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aleth.v1.OrchestratorService/GetGraph',
+            aleth_dot_v1_dot_aletheia__pb2.GetGraphRequest.SerializeToString,
+            aleth_dot_v1_dot_aletheia__pb2.TaskGraph.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListSessions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aleth.v1.OrchestratorService/ListSessions',
+            aleth_dot_v1_dot_aletheia__pb2.ListSessionsRequest.SerializeToString,
+            aleth_dot_v1_dot_aletheia__pb2.ListSessionsResponse.FromString,
             options,
             channel_credentials,
             insecure,

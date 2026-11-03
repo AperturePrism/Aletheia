@@ -34,20 +34,19 @@ func (s *Server) Assemble(ctx context.Context, req *alethv1.AssembleRequest) (*a
 
 // AssembleWithOverrides 装配并应用**连续调节**（M3 §7 DoD）。
 //
-// # 这是进程内 API，不经 gRPC
+// # 从 2026-11-02 起 gRPC 调用方也能用它
 //
-// `AssembleRequest` 在 `05 §4.2` 是 **[frozen]** 的，没有可放覆盖参数的
-// 字段。按 `docs/09` R1 未自造 RPC、未改 proto。
+// 此前 `AssembleRequest` 没有可放覆盖参数的字段（`05 §4.2` 是 [frozen]），
+// 因此连续调节只对**进程内调用方**可用，gRPC 与 MCP 的 `assemble_context`
+// 只能三档。
 //
-// 因此连续调节只对**进程内调用方**可用 —— 主要是 M5 编排层：
-// 它在下发任务时知道"这个任务需要比 f/4 再深一点但不需要 f/16 的窄"，
-// 而 gRPC 调用方暂时只能走三档。
+// `contract:2026-11-02` 给 `AssembleRequest` 加了三个可选字段
+// （`max_hops` / `max_entities` / `depth_per_entity`），`Assemble` 现在会
+// 读取它们并转调本方法 —— 因此这条能力边界已经消除。
 //
-// 补法是同一个 `contract:` PR 给 `AssembleRequest` 加三个可选字段。
-// 与 I6 的 `GetGraph`、I0 的 `ListSessions` 缺口一并处理。
-//
-// ★ 注意 `MCP` 的 `assemble_context` 工具也走 gRPC，因此同样只能三档 ——
-// 这是**如实的能力边界**，不做"看起来支持"的假接口。
+// 保留本方法而不合并进 `Assemble`，是因为进程内调用方（M5 编排层在
+// 下发任务时）直接传 `Overrides` 结构更自然，且不必构造一个
+// `AssembleRequest` 只为了填三个字段。
 func (s *Server) AssembleWithOverrides(
 	ctx context.Context, req *alethv1.AssembleRequest, ov Overrides,
 ) (*alethv1.ContextBundle, error) {

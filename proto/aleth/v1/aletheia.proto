@@ -462,6 +462,14 @@ message AssembleRequest {
   uint32 budget_tokens = 4;           // 硬上限
   ApertureSetting.Stop preferred_stop = 5;
   bool allow_downgrade = 6;           // 超预算时是否允许自动降档重试
+
+  // [contract:2026-11-02] 连续调节的覆盖参数（三档之间的表达）。
+  // 语义：0 = 不覆盖（沿用档位参数）。服务端必须校验组合后的物理语义
+  // （曝光上限 200，禁止"又宽又深"），违反则拒绝，不得静默截断。
+  // 兼容性：纯增量字段；旧客户端不发送（=0）时行为与此前完全一致。
+  uint32 max_hops = 7;
+  uint32 max_entities = 8;
+  uint32 depth_per_entity = 9;
 }
 
 // [derived] 05 §4.2 引用。
@@ -825,6 +833,52 @@ service OrchestratorService {
   rpc Checkpoint(CheckpointRequest) returns (CheckpointInfo);
   rpc Rewind(RewindRequest) returns (RewindResult);
   rpc Fork(ForkRequest) returns (ForkResult);
+
+  // [contract:2026-11-02] 只读：读取任务图。
+  // 背景：决策队列（06 页面 7）需渲染四要素卡片，而契约此前只有"写"，
+  // 无法读取整图。只读、幂等、无副作用。
+  rpc GetGraph(GetGraphRequest) returns (TaskGraph);
+
+  // [contract:2026-11-02] 只读：列出会话。
+  // 背景：会话总览（06 页面 1）需会话列表；此前全契约唯一带 List 语义的
+  // 方法是 ListAdapters，无法枚举会话。只读、幂等。
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+}
+
+// [contract:2026-11-02]
+message GetGraphRequest {
+  string session_id = 1;
+  string graph_id = 2;      // 留空 = 该会话的当前计划
+}
+
+// [contract:2026-11-02]
+message ListSessionsRequest {
+  uint32 limit = 1;         // 0 = 服务端默认值（不得返回"全部"，会话数无上界）
+  string cursor = 2;        // 空串 = 从头开始
+}
+
+// [contract:2026-11-02]
+message ListSessionsResponse {
+  repeated SessionSummary sessions = 1;
+  string next_cursor = 2;   // 空串 = 没有更多
+}
+
+// SessionSummary —— 会话总览一行的全部字段。
+// 刻意不含任何真实敏感值（只放计数与状态），与 07 §T8 一致：
+// 列表是高频读取路径，不应成为泄漏面。
+// [contract:2026-11-02]
+message SessionSummary {
+  string session_id = 1;
+  string status = 2;
+  string created_at = 3;                  // RFC 3339
+  uint32 task_total = 4;
+  uint32 task_done = 5;
+  uint32 task_failed = 6;
+  uint32 budget_total_tokens = 7;
+  uint32 budget_consumed_tokens = 8;
+  bool budget_circuit_open = 9;
+  uint32 findings_candidate = 10;
+  uint32 findings_confirmed = 11;
 }
 
 // [derived] 05 §6.2 引用。
