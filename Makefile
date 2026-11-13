@@ -171,8 +171,21 @@ test: test-go test-python ## Q1：全部单元测试
 # 显式标注出来 —— docs/09 §5 #5：任何"临时"绕过一律先问。
 GO_TEST_RACE ?= 0
 
+# webdist-ensure —— 保证 cmd/alethd/webdist 存在且非空（go:embed 硬要求）。
+#
+# 为什么需要单独的目标：396146a 起 webdist 整目录被 .gitignore（构建
+# 产物不弄脏工作区），占位页改由 cmd/alethd/webplaceholder/（已入库）
+# 在构建时复制。make go-build 会经过 embed-web.sh 自然就位；但
+# test-go / lint / coverage / test-py（redline 经 pytest 触发 go vet）
+# 这些**不经过 go-build 的路径**，在干净 checkout（CI）上会因 embed
+# 空目录直接编译失败 —— 这不是"测试失败"，是"连编译都过不了"，
+# 属 main 回归（PR #24 首次暴露：纯 docs 变更也 4 job 全红）。
+.PHONY: webdist-ensure
+webdist-ensure:
+	@bash scripts/webdist-ensure.sh
+
 .PHONY: test-go
-test-go: ## Go 单元测试（GO_TEST_RACE=1 启用 race，需 cgo）
+test-go: webdist-ensure ## Go 单元测试（GO_TEST_RACE=1 启用 race，需 cgo）
 ifeq ($(GO_TEST_RACE),1)
 	@echo "== go test -race（GO_TEST_RACE=1 显式启用）=="
 	$(GO) test $(GO_PKGS) -race -count=1
@@ -188,11 +201,11 @@ else
 endif
 
 .PHONY: test-python
-test-python: ## Python 单元测试
+test-python: webdist-ensure ## Python 单元测试
 	$(PYTEST) $(PYTEST_ARGS)
 
 .PHONY: test-contract
-test-contract: ## Q10：契约一致性（Go/Python/TS 三侧 vs docs/05）
+test-contract: webdist-ensure ## Q10：契约一致性（Go/Python/TS 三侧 vs docs/05）
 	$(PYTEST) tests/ -q -m redline
 
 .PHONY: test-determinism
@@ -203,7 +216,7 @@ test-determinism: ## Q6：确定性（相同输入产出字节级一致）
 	@echo "            I2 证据账本落地后在此恢复 $(PYTEST) -q -m determinism。"
 
 .PHONY: redline
-redline: ## Q3/Q4/Q5 红线门禁（Q3 已交付 I2；Q4/Q5 随 I3）
+redline: webdist-ensure ## Q3/Q4/Q5 红线门禁（Q3 已交付 I2；Q4/Q5 随 I3）
 	@echo "== 红线门禁 Q3/Q4/Q5 =="
 	@echo "  Q3 伪造证据注入 100% 被拒 —— tests/redline/test_q3_forged_evidence.py"
 	@echo "  Q4 越界 100% fail-closed    —— core/scopekernel（7 类绕过防御）"
@@ -212,7 +225,7 @@ redline: ## Q3/Q4/Q5 红线门禁（Q3 已交付 I2；Q4/Q5 随 I3）
 	$(GO) test $(GO_PKGS:%=./%) -count=1 -run "TestNormalize|TestExcludeBeatsInclude|TestDefaultDeny|TestPostDNS|TestRateLimit|TestParseScope|TestTokenize|TestDetokenize|TestScanOutbound|TestCredential"
 
 .PHONY: coverage
-coverage: ## Q2：覆盖率（Python 阈值见 pyproject.toml；Go 解析器 ≥90%，scripts/coverage-go.sh）
+coverage: webdist-ensure ## Q2：覆盖率（Python 阈值见 pyproject.toml；Go 解析器 ≥90%，scripts/coverage-go.sh）
 	$(PYTEST) --cov --cov-report=term-missing --cov-report=html
 	$(GO) test $(GO_PKGS) -coverprofile=cover.out
 	@echo "Go coverage: cover.out"
@@ -239,7 +252,7 @@ stability-smoke: ## Q8：稳定性冒烟（90s，验证 harness 接线；warmup=
 # ============================================================================
 
 .PHONY: lint
-lint: ## Q7：全部静态检查（Go / Python / Web / proto）
+lint: webdist-ensure ## Q7：全部静态检查（Go / Python / Web / proto）
 	@bash scripts/lint.sh
 
 
