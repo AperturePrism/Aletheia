@@ -1111,6 +1111,8 @@ const (
 	OrchestratorService_Checkpoint_FullMethodName       = "/aleth.v1.OrchestratorService/Checkpoint"
 	OrchestratorService_Rewind_FullMethodName           = "/aleth.v1.OrchestratorService/Rewind"
 	OrchestratorService_Fork_FullMethodName             = "/aleth.v1.OrchestratorService/Fork"
+	OrchestratorService_GetGraph_FullMethodName         = "/aleth.v1.OrchestratorService/GetGraph"
+	OrchestratorService_ListSessions_FullMethodName     = "/aleth.v1.OrchestratorService/ListSessions"
 )
 
 // OrchestratorServiceClient is the client API for OrchestratorService service.
@@ -1127,6 +1129,14 @@ type OrchestratorServiceClient interface {
 	Checkpoint(ctx context.Context, in *CheckpointRequest, opts ...grpc.CallOption) (*CheckpointInfo, error)
 	Rewind(ctx context.Context, in *RewindRequest, opts ...grpc.CallOption) (*RewindResult, error)
 	Fork(ctx context.Context, in *ForkRequest, opts ...grpc.CallOption) (*ForkResult, error)
+	// [contract:2026-11-02] 只读：读取任务图。
+	// 背景：决策队列（06 页面 7）需渲染四要素卡片，而契约此前只有"写"，
+	// 无法读取整图。只读、幂等、无副作用。
+	GetGraph(ctx context.Context, in *GetGraphRequest, opts ...grpc.CallOption) (*TaskGraph, error)
+	// [contract:2026-11-02] 只读：列出会话。
+	// 背景：会话总览（06 页面 1）需会话列表；此前全契约唯一带 List 语义的
+	// 方法是 ListAdapters，无法枚举会话。只读、幂等。
+	ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error)
 }
 
 type orchestratorServiceClient struct {
@@ -1207,6 +1217,26 @@ func (c *orchestratorServiceClient) Fork(ctx context.Context, in *ForkRequest, o
 	return out, nil
 }
 
+func (c *orchestratorServiceClient) GetGraph(ctx context.Context, in *GetGraphRequest, opts ...grpc.CallOption) (*TaskGraph, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TaskGraph)
+	err := c.cc.Invoke(ctx, OrchestratorService_GetGraph_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *orchestratorServiceClient) ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSessionsResponse)
+	err := c.cc.Invoke(ctx, OrchestratorService_ListSessions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OrchestratorServiceServer is the server API for OrchestratorService service.
 // All implementations must embed UnimplementedOrchestratorServiceServer
 // for forward compatibility.
@@ -1221,6 +1251,14 @@ type OrchestratorServiceServer interface {
 	Checkpoint(context.Context, *CheckpointRequest) (*CheckpointInfo, error)
 	Rewind(context.Context, *RewindRequest) (*RewindResult, error)
 	Fork(context.Context, *ForkRequest) (*ForkResult, error)
+	// [contract:2026-11-02] 只读：读取任务图。
+	// 背景：决策队列（06 页面 7）需渲染四要素卡片，而契约此前只有"写"，
+	// 无法读取整图。只读、幂等、无副作用。
+	GetGraph(context.Context, *GetGraphRequest) (*TaskGraph, error)
+	// [contract:2026-11-02] 只读：列出会话。
+	// 背景：会话总览（06 页面 1）需会话列表；此前全契约唯一带 List 语义的
+	// 方法是 ListAdapters，无法枚举会话。只读、幂等。
+	ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error)
 	mustEmbedUnimplementedOrchestratorServiceServer()
 }
 
@@ -1251,6 +1289,12 @@ func (UnimplementedOrchestratorServiceServer) Rewind(context.Context, *RewindReq
 }
 func (UnimplementedOrchestratorServiceServer) Fork(context.Context, *ForkRequest) (*ForkResult, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Fork not implemented")
+}
+func (UnimplementedOrchestratorServiceServer) GetGraph(context.Context, *GetGraphRequest) (*TaskGraph, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetGraph not implemented")
+}
+func (UnimplementedOrchestratorServiceServer) ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSessions not implemented")
 }
 func (UnimplementedOrchestratorServiceServer) mustEmbedUnimplementedOrchestratorServiceServer() {}
 func (UnimplementedOrchestratorServiceServer) testEmbeddedByValue()                             {}
@@ -1399,6 +1443,42 @@ func _OrchestratorService_Fork_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OrchestratorService_GetGraph_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetGraphRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrchestratorServiceServer).GetGraph(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrchestratorService_GetGraph_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrchestratorServiceServer).GetGraph(ctx, req.(*GetGraphRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OrchestratorService_ListSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrchestratorServiceServer).ListSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrchestratorService_ListSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrchestratorServiceServer).ListSessions(ctx, req.(*ListSessionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OrchestratorService_ServiceDesc is the grpc.ServiceDesc for OrchestratorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1433,6 +1513,14 @@ var OrchestratorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Fork",
 			Handler:    _OrchestratorService_Fork_Handler,
+		},
+		{
+			MethodName: "GetGraph",
+			Handler:    _OrchestratorService_GetGraph_Handler,
+		},
+		{
+			MethodName: "ListSessions",
+			Handler:    _OrchestratorService_ListSessions_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

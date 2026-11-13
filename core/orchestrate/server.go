@@ -55,6 +55,8 @@ type Server struct {
 	seq    uint64
 	// snapshots 提供检查点所需的跨模块状态（可为 nil —— 见 Checkpoint）。
 	snapshots SnapshotSource
+	// sessions 提供 ListSessions 所需的跨模块状态（可为 nil —— 见 sessions.go）。
+	sessions SessionSource
 }
 
 // NewServer 装配 OrchestratorService。
@@ -99,6 +101,15 @@ func (s *Server) Plan(ctx context.Context, req *alethv1.PlanRequest) (*alethv1.T
 	}
 	if g.PlanRevision == "" {
 		g.PlanRevision = "1"
+	}
+	// ★ graph_id 缺失时必须派生一个（2026-11-02 修复）。
+	//
+	// 此前 Plan 原样保留空 graph_id，而 `NextReady` / `GetGraph` /
+	// 检查点全都要它 —— 调用方（含本项目的 Python 执行侧）拿到空值后
+	// 只能在第一步就失败，且错误信息指向"没拿到 graph_id"，
+	// 看不出根因在 Plan。派生规则见 graphid.go（内容哈希，跨重启稳定）。
+	if g.ID == "" {
+		g.ID = deriveGraphID(g)
 	}
 
 	s.mu.Lock()

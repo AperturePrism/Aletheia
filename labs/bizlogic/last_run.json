@@ -1,0 +1,171 @@
+{
+  "generated_at": "2026-11-03T07:32:28Z",
+  "target": "http://127.0.0.1:8080",
+  "lab": "bizlogic",
+  "mode": "WITHOUT_CONTRACT",
+  "detectable": 5,
+  "detected": [
+    "BL1-order-idor",
+    "BL3-skip-payment",
+    "BL4-quota-reset",
+    "BL5-header-promote",
+    "BL6-double-spend"
+  ],
+  "missed": [],
+  "false_positives": [
+    "BL2_TAMPERING@POST /api/checkout"
+  ],
+  "rate": 1.0,
+  "per_defect": [
+    {
+      "violation_type": "BL1_IDOR",
+      "endpoint_key": "GET /api/orders/{id}",
+      "observed": true,
+      "exec_id": "localprobe:a407e7806cd7751a",
+      "details": {
+        "status": "200",
+        "leaked_owner": "bob",
+        "evidence": "response contained another user's order fields"
+      }
+    },
+    {
+      "violation_type": "BL2_TAMPERING",
+      "endpoint_key": "POST /api/checkout",
+      "observed": true,
+      "exec_id": "localprobe:36fd9bc8bd95ac66",
+      "details": {
+        "status": "201",
+        "accepted_total": "0.01"
+      }
+    },
+    {
+      "violation_type": "BL3_FLOW_BYPASS",
+      "endpoint_key": "POST /api/orders/{id}/ship",
+      "observed": true,
+      "exec_id": "localprobe:440e711875b10c6c",
+      "details": {
+        "status": "200",
+        "final_state": "SHIPPED"
+      }
+    },
+    {
+      "violation_type": "BL4_QUOTA_BYPASS",
+      "endpoint_key": "POST /api/coupon/redeem",
+      "observed": true,
+      "exec_id": "localprobe:2194881ed1aa53c6",
+      "details": {
+        "successes": "4",
+        "attempts": "4"
+      }
+    },
+    {
+      "violation_type": "BL5_PRIVILEGE_CHAIN",
+      "endpoint_key": "POST /api/admin/users/{id}/promote",
+      "observed": true,
+      "exec_id": "localprobe:9c6e89c7921c0d46",
+      "details": {
+        "status": "200",
+        "promoted": "bob"
+      }
+    },
+    {
+      "violation_type": "BL6_RACE",
+      "endpoint_key": "POST /api/transfer",
+      "observed": true,
+      "exec_id": "localprobe:925794afb5be4f86",
+      "details": {
+        "balance_before": "1000.00",
+        "balance_after": "-600.00",
+        "codes": "200,200"
+      }
+    }
+  ],
+  "evidence_level": "local_probe_unsigned",
+  "evidence_disclaimer": "本次探测由 live_probe 直接发起 HTTP 请求，未经 Sandbox 签名，exec_id 为内容指纹（localprobe:*）而非签名执行 id。因此这些数字支撑『靶场基准的可复现分数』，但**不构成红线级（Q3）证据，也不得据此宣称已确认漏洞**。",
+  "probe_log": [
+    {
+      "method": "GET",
+      "path": "/api/orders/200",
+      "user": "alice",
+      "code": 200,
+      "body_prefix": "{\"order\": {\"id\": 200, \"owner\": \"bob\", \"total\": 50.0, \"status\": \"PAID\"}, \"requested_by\": \"alice\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/checkout",
+      "user": "alice",
+      "code": 201,
+      "body_prefix": "{\"order\": {\"id\": 300, \"owner\": \"alice\", \"total\": 0.01, \"status\": \"CREATED\"}, \"accepted_client_total\": true}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/orders/100/ship",
+      "user": "alice",
+      "code": 200,
+      "body_prefix": "{\"order\": {\"id\": 100, \"owner\": \"alice\", \"total\": 100.0, \"status\": \"SHIPPED\"}, \"skipped_payment_state\": true}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/coupon/redeem",
+      "user": "bob",
+      "code": 200,
+      "body_prefix": "{\"redeemed\": true, \"used\": 1}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/coupon/redeem",
+      "user": "bob",
+      "code": 200,
+      "body_prefix": "{\"redeemed\": true, \"used\": 1}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/coupon/redeem",
+      "user": "bob",
+      "code": 200,
+      "body_prefix": "{\"redeemed\": true, \"used\": 1}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/coupon/redeem",
+      "user": "bob",
+      "code": 200,
+      "body_prefix": "{\"redeemed\": true, \"used\": 1}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users/2/promote",
+      "user": "bob",
+      "code": 200,
+      "body_prefix": "{\"promoted\": \"bob\", \"by\": \"bob\", \"trusted_header\": true}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/state",
+      "user": "alice",
+      "code": 200,
+      "body_prefix": "{\"users\": {\"alice\": {\"id\": 1, \"role\": \"user\", \"balance\": 1000.0}, \"bob\": {\"id\": 2, \"role\": \"admin\", \"balance\": 1000.0}, \"admin\": {\"id\": 3, \"role\": \"admin\", \"balance\": 5000.0}}, \"orders\": {\"100\": {\"id\": 100, \"owner\": \"alice\", \"total\": 100.0, \"status\": \"SHIPPED\"}, \"200\": {\"id\": 200, \"owner\": \"bob\", \"total\": 50.0, \"status\": \"PAID\"}, \"300\": {\"id\": 300, \"owner\": \"alice\", \"total\": 0.01, \"status\": \"CREAT"
+    },
+    {
+      "method": "POST",
+      "path": "/api/transfer",
+      "user": "bob",
+      "code": 200,
+      "body_prefix": "{\"ok\": true, \"from\": \"bob\", \"to\": \"alice\", \"amount\": 800.0}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/transfer",
+      "user": "bob",
+      "code": 200,
+      "body_prefix": "{\"ok\": true, \"from\": \"bob\", \"to\": \"alice\", \"amount\": 800.0}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/state",
+      "user": "alice",
+      "code": 200,
+      "body_prefix": "{\"users\": {\"alice\": {\"id\": 1, \"role\": \"user\", \"balance\": 2600.0}, \"bob\": {\"id\": 2, \"role\": \"admin\", \"balance\": -600.0}, \"admin\": {\"id\": 3, \"role\": \"admin\", \"balance\": 5000.0}}, \"orders\": {\"100\": {\"id\": 100, \"owner\": \"alice\", \"total\": 100.0, \"status\": \"SHIPPED\"}, \"200\": {\"id\": 200, \"owner\": \"bob\", \"total\": 50.0, \"status\": \"PAID\"}, \"300\": {\"id\": 300, \"owner\": \"alice\", \"total\": 0.01, \"status\": \"CREAT"
+    }
+  ]
+}

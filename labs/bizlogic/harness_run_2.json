@@ -1,0 +1,82 @@
+{
+  "generated_at": "2026-11-03T08:33:30Z",
+  "benchmark": "bizlogic",
+  "kind": "self_built_benchmark",
+  "caveat": "这是自建基准（labs/bizlogic）上的分数，**不是**公开基准分数，不可与 CyBench/CVE-Bench/XBOW/HTB 的结果横向比较。solved 的语义是「模型对已观测异常的归类正确」，不是「系统自主发现了异常」。",
+  "reproducibility": {
+    "system_version": "57a1774",
+    "model": "deepseek-v4.1-flash",
+    "temperature": "provider-default（未显式设置，故无法断言为 0）",
+    "seed": "0",
+    "target_environment": "aleth-lab-bizlogic (python:3.12-alpine @sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8)",
+    "observation_coverage": "6 个端点，六类业务逻辑缺陷各 1 个"
+  },
+  "llm_calls": 6,
+  "total_tokens": 2191,
+  "by_tier": {
+    "parse_assist": 2191
+  },
+  "wall_time_s": 8.5,
+  "runs": [
+    {
+      "solved": 6,
+      "total": 6,
+      "results": [
+        {
+          "task_id": "bl1-order-idor",
+          "solved": true,
+          "reported": [
+            "BL1_IDOR"
+          ],
+          "tokens": 354,
+          "failure_reason": ""
+        },
+        {
+          "task_id": "bl2-client-total",
+          "solved": true,
+          "reported": [
+            "BL2_TAMPERING"
+          ],
+          "tokens": 345,
+          "failure_reason": ""
+        },
+        {
+          "task_id": "bl3-skip-payment",
+          "solved": true,
+          "reported": [
+            "BL3_FLOW_BYPASS"
+          ],
+          "tokens": 359,
+          "failure_reason": ""
+        },
+        {
+          "task_id": "bl4-quota-reset",
+          "solved": true,
+          "reported": [
+            "BL4_QUOTA_BYPASS"
+          ],
+          "tokens": 360,
+          "failure_reason": ""
+        },
+        {
+          "task_id": "bl5-header-promote",
+          "solved": true,
+          "reported": [
+            "BL5_PRIVILEGE_CHAIN"
+          ],
+          "tokens": 416,
+          "failure_reason": ""
+        },
+        {
+          "task_id": "bl6-double-spend",
+          "solved": true,
+          "reported": [
+            "BL6_RACE"
+          ],
+          "tokens": 357,
+          "failure_reason": ""
+        }
+      ]
+    }
+  ]
+}

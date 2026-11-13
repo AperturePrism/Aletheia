@@ -384,9 +384,23 @@ func runDaemon(cmd *cobra.Command, _ []string) error {
 			func(sessionID string) (uint64, uint64, bool, bool) {
 				return budgetStateFromGovernor(sessionID, sessionBudget, 0, false)
 			}))
+
+	// [contract:2026-11-02] ListSessions 的跨模块状态来源。
+	//
+	// 编排层只知道"有哪些任务图"，预算在 Governor、finding 计数在
+	// Python 侧账本。这里注入适配器，让会话总览（06 页面 1）能显示
+	// 真实的预算数字；finding 计数如实留空（见 session_source.go）。
+	sessionSrc := newSessionSourceAdapter(
+		func(sessionID string) (uint64, uint64, bool, bool) {
+			return budgetStateFromGovernor(sessionID, sessionBudget, 0, false)
+		})
+	if srv, ok := registry.Orchestrator.(*orchestrate.Server); ok {
+		srv.SetSessionSource(sessionSrc)
+	}
 	logger.Info("orchestrator (M5) wired",
 		zap.String("next_ready", "deterministic: topological sort + resource constraints"),
-		zap.Bool("checkpoint_snapshots_wired", graphStore != nil))
+		zap.Bool("checkpoint_snapshots_wired", graphStore != nil),
+		zap.String("session_source", describeSessionSource(sessionSrc)))
 
 	// I6 补充：GatewayService 的 gRPC 接线。
 	//

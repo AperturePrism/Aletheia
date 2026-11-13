@@ -2949,6 +2949,13 @@ type AssembleRequest struct {
 	BudgetTokens   uint32                 `protobuf:"varint,4,opt,name=budget_tokens,json=budgetTokens,proto3" json:"budget_tokens,omitempty"` // 硬上限
 	PreferredStop  ApertureSetting_Stop   `protobuf:"varint,5,opt,name=preferred_stop,json=preferredStop,proto3,enum=aleth.v1.ApertureSetting_Stop" json:"preferred_stop,omitempty"`
 	AllowDowngrade bool                   `protobuf:"varint,6,opt,name=allow_downgrade,json=allowDowngrade,proto3" json:"allow_downgrade,omitempty"` // 超预算时是否允许自动降档重试
+	// [contract:2026-11-02] 连续调节的覆盖参数（三档之间的表达）。
+	// 语义：0 = 不覆盖（沿用档位参数）。服务端必须校验组合后的物理语义
+	// （曝光上限 200，禁止"又宽又深"），违反则拒绝，不得静默截断。
+	// 兼容性：纯增量字段；旧客户端不发送（=0）时行为与此前完全一致。
+	MaxHops        uint32 `protobuf:"varint,7,opt,name=max_hops,json=maxHops,proto3" json:"max_hops,omitempty"`
+	MaxEntities    uint32 `protobuf:"varint,8,opt,name=max_entities,json=maxEntities,proto3" json:"max_entities,omitempty"`
+	DepthPerEntity uint32 `protobuf:"varint,9,opt,name=depth_per_entity,json=depthPerEntity,proto3" json:"depth_per_entity,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -3023,6 +3030,27 @@ func (x *AssembleRequest) GetAllowDowngrade() bool {
 		return x.AllowDowngrade
 	}
 	return false
+}
+
+func (x *AssembleRequest) GetMaxHops() uint32 {
+	if x != nil {
+		return x.MaxHops
+	}
+	return 0
+}
+
+func (x *AssembleRequest) GetMaxEntities() uint32 {
+	if x != nil {
+		return x.MaxEntities
+	}
+	return 0
+}
+
+func (x *AssembleRequest) GetDepthPerEntity() uint32 {
+	if x != nil {
+		return x.DepthPerEntity
+	}
+	return 0
 }
 
 // [derived] 05 §4.2 引用。
@@ -4816,6 +4844,293 @@ func (x *TaskGraph) GetPlanRationale() string {
 	return ""
 }
 
+// [contract:2026-11-02]
+type GetGraphRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	GraphId       string                 `protobuf:"bytes,2,opt,name=graph_id,json=graphId,proto3" json:"graph_id,omitempty"` // 留空 = 该会话的当前计划
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetGraphRequest) Reset() {
+	*x = GetGraphRequest{}
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetGraphRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetGraphRequest) ProtoMessage() {}
+
+func (x *GetGraphRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetGraphRequest.ProtoReflect.Descriptor instead.
+func (*GetGraphRequest) Descriptor() ([]byte, []int) {
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *GetGraphRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *GetGraphRequest) GetGraphId() string {
+	if x != nil {
+		return x.GraphId
+	}
+	return ""
+}
+
+// [contract:2026-11-02]
+type ListSessionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Limit         uint32                 `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`  // 0 = 服务端默认值（不得返回"全部"，会话数无上界）
+	Cursor        string                 `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"` // 空串 = 从头开始
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSessionsRequest) Reset() {
+	*x = ListSessionsRequest{}
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSessionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSessionsRequest) ProtoMessage() {}
+
+func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSessionsRequest.ProtoReflect.Descriptor instead.
+func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *ListSessionsRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListSessionsRequest) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+// [contract:2026-11-02]
+type ListSessionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sessions      []*SessionSummary      `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"` // 空串 = 没有更多
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSessionsResponse) Reset() {
+	*x = ListSessionsResponse{}
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSessionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSessionsResponse) ProtoMessage() {}
+
+func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
+func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *ListSessionsResponse) GetSessions() []*SessionSummary {
+	if x != nil {
+		return x.Sessions
+	}
+	return nil
+}
+
+func (x *ListSessionsResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
+// SessionSummary —— 会话总览一行的全部字段。
+// 刻意不含任何真实敏感值（只放计数与状态），与 07 §T8 一致：
+// 列表是高频读取路径，不应成为泄漏面。
+// [contract:2026-11-02]
+type SessionSummary struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	SessionId            string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Status               string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt            string                 `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // RFC 3339
+	TaskTotal            uint32                 `protobuf:"varint,4,opt,name=task_total,json=taskTotal,proto3" json:"task_total,omitempty"`
+	TaskDone             uint32                 `protobuf:"varint,5,opt,name=task_done,json=taskDone,proto3" json:"task_done,omitempty"`
+	TaskFailed           uint32                 `protobuf:"varint,6,opt,name=task_failed,json=taskFailed,proto3" json:"task_failed,omitempty"`
+	BudgetTotalTokens    uint32                 `protobuf:"varint,7,opt,name=budget_total_tokens,json=budgetTotalTokens,proto3" json:"budget_total_tokens,omitempty"`
+	BudgetConsumedTokens uint32                 `protobuf:"varint,8,opt,name=budget_consumed_tokens,json=budgetConsumedTokens,proto3" json:"budget_consumed_tokens,omitempty"`
+	BudgetCircuitOpen    bool                   `protobuf:"varint,9,opt,name=budget_circuit_open,json=budgetCircuitOpen,proto3" json:"budget_circuit_open,omitempty"`
+	FindingsCandidate    uint32                 `protobuf:"varint,10,opt,name=findings_candidate,json=findingsCandidate,proto3" json:"findings_candidate,omitempty"`
+	FindingsConfirmed    uint32                 `protobuf:"varint,11,opt,name=findings_confirmed,json=findingsConfirmed,proto3" json:"findings_confirmed,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *SessionSummary) Reset() {
+	*x = SessionSummary{}
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionSummary) ProtoMessage() {}
+
+func (x *SessionSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionSummary.ProtoReflect.Descriptor instead.
+func (*SessionSummary) Descriptor() ([]byte, []int) {
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *SessionSummary) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *SessionSummary) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *SessionSummary) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *SessionSummary) GetTaskTotal() uint32 {
+	if x != nil {
+		return x.TaskTotal
+	}
+	return 0
+}
+
+func (x *SessionSummary) GetTaskDone() uint32 {
+	if x != nil {
+		return x.TaskDone
+	}
+	return 0
+}
+
+func (x *SessionSummary) GetTaskFailed() uint32 {
+	if x != nil {
+		return x.TaskFailed
+	}
+	return 0
+}
+
+func (x *SessionSummary) GetBudgetTotalTokens() uint32 {
+	if x != nil {
+		return x.BudgetTotalTokens
+	}
+	return 0
+}
+
+func (x *SessionSummary) GetBudgetConsumedTokens() uint32 {
+	if x != nil {
+		return x.BudgetConsumedTokens
+	}
+	return 0
+}
+
+func (x *SessionSummary) GetBudgetCircuitOpen() bool {
+	if x != nil {
+		return x.BudgetCircuitOpen
+	}
+	return false
+}
+
+func (x *SessionSummary) GetFindingsCandidate() uint32 {
+	if x != nil {
+		return x.FindingsCandidate
+	}
+	return 0
+}
+
+func (x *SessionSummary) GetFindingsConfirmed() uint32 {
+	if x != nil {
+		return x.FindingsConfirmed
+	}
+	return 0
+}
+
 // [derived] 05 §6.2 引用。
 type PlanRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
@@ -4830,7 +5145,7 @@ type PlanRequest struct {
 
 func (x *PlanRequest) Reset() {
 	*x = PlanRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[54]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4842,7 +5157,7 @@ func (x *PlanRequest) String() string {
 func (*PlanRequest) ProtoMessage() {}
 
 func (x *PlanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[54]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4855,7 +5170,7 @@ func (x *PlanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanRequest.ProtoReflect.Descriptor instead.
 func (*PlanRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{54}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *PlanRequest) GetSessionId() string {
@@ -4891,7 +5206,7 @@ type NextReadyRequest struct {
 
 func (x *NextReadyRequest) Reset() {
 	*x = NextReadyRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[55]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4903,7 +5218,7 @@ func (x *NextReadyRequest) String() string {
 func (*NextReadyRequest) ProtoMessage() {}
 
 func (x *NextReadyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[55]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4916,7 +5231,7 @@ func (x *NextReadyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NextReadyRequest.ProtoReflect.Descriptor instead.
 func (*NextReadyRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{55}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *NextReadyRequest) GetSessionId() string {
@@ -4952,7 +5267,7 @@ type NextReadyResponse struct {
 
 func (x *NextReadyResponse) Reset() {
 	*x = NextReadyResponse{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[56]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4964,7 +5279,7 @@ func (x *NextReadyResponse) String() string {
 func (*NextReadyResponse) ProtoMessage() {}
 
 func (x *NextReadyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[56]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4977,7 +5292,7 @@ func (x *NextReadyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NextReadyResponse.ProtoReflect.Descriptor instead.
 func (*NextReadyResponse) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{56}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *NextReadyResponse) GetReadyTaskIds() []string {
@@ -5008,7 +5323,7 @@ type ReportTaskResultRequest struct {
 
 func (x *ReportTaskResultRequest) Reset() {
 	*x = ReportTaskResultRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[57]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5020,7 +5335,7 @@ func (x *ReportTaskResultRequest) String() string {
 func (*ReportTaskResultRequest) ProtoMessage() {}
 
 func (x *ReportTaskResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[57]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5033,7 +5348,7 @@ func (x *ReportTaskResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportTaskResultRequest.ProtoReflect.Descriptor instead.
 func (*ReportTaskResultRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{57}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *ReportTaskResultRequest) GetSessionId() string {
@@ -5083,7 +5398,7 @@ type TaskUpdateResult struct {
 
 func (x *TaskUpdateResult) Reset() {
 	*x = TaskUpdateResult{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[58]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5095,7 +5410,7 @@ func (x *TaskUpdateResult) String() string {
 func (*TaskUpdateResult) ProtoMessage() {}
 
 func (x *TaskUpdateResult) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[58]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5108,7 +5423,7 @@ func (x *TaskUpdateResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskUpdateResult.ProtoReflect.Descriptor instead.
 func (*TaskUpdateResult) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{58}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *TaskUpdateResult) GetUpdatedTask() *Task {
@@ -5145,7 +5460,7 @@ type RefineRequest struct {
 
 func (x *RefineRequest) Reset() {
 	*x = RefineRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[59]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5157,7 +5472,7 @@ func (x *RefineRequest) String() string {
 func (*RefineRequest) ProtoMessage() {}
 
 func (x *RefineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[59]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5170,7 +5485,7 @@ func (x *RefineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefineRequest.ProtoReflect.Descriptor instead.
 func (*RefineRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{59}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *RefineRequest) GetSessionId() string {
@@ -5212,7 +5527,7 @@ type CheckpointRequest struct {
 
 func (x *CheckpointRequest) Reset() {
 	*x = CheckpointRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[60]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5224,7 +5539,7 @@ func (x *CheckpointRequest) String() string {
 func (*CheckpointRequest) ProtoMessage() {}
 
 func (x *CheckpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[60]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5237,7 +5552,7 @@ func (x *CheckpointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckpointRequest.ProtoReflect.Descriptor instead.
 func (*CheckpointRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{60}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *CheckpointRequest) GetSessionId() string {
@@ -5270,7 +5585,7 @@ type CheckpointInfo struct {
 
 func (x *CheckpointInfo) Reset() {
 	*x = CheckpointInfo{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[61]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5282,7 +5597,7 @@ func (x *CheckpointInfo) String() string {
 func (*CheckpointInfo) ProtoMessage() {}
 
 func (x *CheckpointInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[61]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5295,7 +5610,7 @@ func (x *CheckpointInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckpointInfo.ProtoReflect.Descriptor instead.
 func (*CheckpointInfo) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{61}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *CheckpointInfo) GetCheckpointId() string {
@@ -5358,7 +5673,7 @@ type RewindRequest struct {
 
 func (x *RewindRequest) Reset() {
 	*x = RewindRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[62]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5370,7 +5685,7 @@ func (x *RewindRequest) String() string {
 func (*RewindRequest) ProtoMessage() {}
 
 func (x *RewindRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[62]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5383,7 +5698,7 @@ func (x *RewindRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RewindRequest.ProtoReflect.Descriptor instead.
 func (*RewindRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{62}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *RewindRequest) GetSessionId() string {
@@ -5414,7 +5729,7 @@ type RewindResult struct {
 
 func (x *RewindResult) Reset() {
 	*x = RewindResult{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[63]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5426,7 +5741,7 @@ func (x *RewindResult) String() string {
 func (*RewindResult) ProtoMessage() {}
 
 func (x *RewindResult) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[63]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5439,7 +5754,7 @@ func (x *RewindResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RewindResult.ProtoReflect.Descriptor instead.
 func (*RewindResult) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{63}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *RewindResult) GetSessionId() string {
@@ -5482,7 +5797,7 @@ type ForkRequest struct {
 
 func (x *ForkRequest) Reset() {
 	*x = ForkRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[64]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5494,7 +5809,7 @@ func (x *ForkRequest) String() string {
 func (*ForkRequest) ProtoMessage() {}
 
 func (x *ForkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[64]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5507,7 +5822,7 @@ func (x *ForkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForkRequest.ProtoReflect.Descriptor instead.
 func (*ForkRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{64}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *ForkRequest) GetSessionId() string {
@@ -5544,7 +5859,7 @@ type ForkResult struct {
 
 func (x *ForkResult) Reset() {
 	*x = ForkResult{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[65]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5556,7 +5871,7 @@ func (x *ForkResult) String() string {
 func (*ForkResult) ProtoMessage() {}
 
 func (x *ForkResult) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[65]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5569,7 +5884,7 @@ func (x *ForkResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForkResult.ProtoReflect.Descriptor instead.
 func (*ForkResult) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{65}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *ForkResult) GetNewSessionId() string {
@@ -5615,7 +5930,7 @@ type ScopeCheckResult struct {
 
 func (x *ScopeCheckResult) Reset() {
 	*x = ScopeCheckResult{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[66]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5627,7 +5942,7 @@ func (x *ScopeCheckResult) String() string {
 func (*ScopeCheckResult) ProtoMessage() {}
 
 func (x *ScopeCheckResult) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[66]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5640,7 +5955,7 @@ func (x *ScopeCheckResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScopeCheckResult.ProtoReflect.Descriptor instead.
 func (*ScopeCheckResult) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{66}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *ScopeCheckResult) GetAllowed() bool {
@@ -5690,7 +6005,7 @@ type ScopeCheckRequest struct {
 
 func (x *ScopeCheckRequest) Reset() {
 	*x = ScopeCheckRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[67]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5702,7 +6017,7 @@ func (x *ScopeCheckRequest) String() string {
 func (*ScopeCheckRequest) ProtoMessage() {}
 
 func (x *ScopeCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[67]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5715,7 +6030,7 @@ func (x *ScopeCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScopeCheckRequest.ProtoReflect.Descriptor instead.
 func (*ScopeCheckRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{67}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *ScopeCheckRequest) GetSessionId() string {
@@ -5765,7 +6080,7 @@ type LoadScopeRequest struct {
 
 func (x *LoadScopeRequest) Reset() {
 	*x = LoadScopeRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[68]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5777,7 +6092,7 @@ func (x *LoadScopeRequest) String() string {
 func (*LoadScopeRequest) ProtoMessage() {}
 
 func (x *LoadScopeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[68]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5790,7 +6105,7 @@ func (x *LoadScopeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoadScopeRequest.ProtoReflect.Descriptor instead.
 func (*LoadScopeRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{68}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *LoadScopeRequest) GetSessionId() string {
@@ -5822,7 +6137,7 @@ type BudgetState struct {
 
 func (x *BudgetState) Reset() {
 	*x = BudgetState{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[69]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5834,7 +6149,7 @@ func (x *BudgetState) String() string {
 func (*BudgetState) ProtoMessage() {}
 
 func (x *BudgetState) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[69]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5847,7 +6162,7 @@ func (x *BudgetState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BudgetState.ProtoReflect.Descriptor instead.
 func (*BudgetState) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{69}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *BudgetState) GetTotalTokens() uint32 {
@@ -5904,7 +6219,7 @@ type ReserveRequest struct {
 
 func (x *ReserveRequest) Reset() {
 	*x = ReserveRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[70]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5916,7 +6231,7 @@ func (x *ReserveRequest) String() string {
 func (*ReserveRequest) ProtoMessage() {}
 
 func (x *ReserveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[70]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5929,7 +6244,7 @@ func (x *ReserveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveRequest.ProtoReflect.Descriptor instead.
 func (*ReserveRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{70}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *ReserveRequest) GetSessionId() string {
@@ -5967,7 +6282,7 @@ type ReserveResult struct {
 
 func (x *ReserveResult) Reset() {
 	*x = ReserveResult{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[71]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5979,7 +6294,7 @@ func (x *ReserveResult) String() string {
 func (*ReserveResult) ProtoMessage() {}
 
 func (x *ReserveResult) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[71]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5992,7 +6307,7 @@ func (x *ReserveResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveResult.ProtoReflect.Descriptor instead.
 func (*ReserveResult) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{71}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *ReserveResult) GetReserved() bool {
@@ -6035,7 +6350,7 @@ type ConsumeRequest struct {
 
 func (x *ConsumeRequest) Reset() {
 	*x = ConsumeRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[72]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6047,7 +6362,7 @@ func (x *ConsumeRequest) String() string {
 func (*ConsumeRequest) ProtoMessage() {}
 
 func (x *ConsumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[72]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6060,7 +6375,7 @@ func (x *ConsumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsumeRequest.ProtoReflect.Descriptor instead.
 func (*ConsumeRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{72}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *ConsumeRequest) GetSessionId() string {
@@ -6094,7 +6409,7 @@ type BudgetStateRequest struct {
 
 func (x *BudgetStateRequest) Reset() {
 	*x = BudgetStateRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[73]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6106,7 +6421,7 @@ func (x *BudgetStateRequest) String() string {
 func (*BudgetStateRequest) ProtoMessage() {}
 
 func (x *BudgetStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[73]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6119,7 +6434,7 @@ func (x *BudgetStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BudgetStateRequest.ProtoReflect.Descriptor instead.
 func (*BudgetStateRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{73}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *BudgetStateRequest) GetSessionId() string {
@@ -6139,7 +6454,7 @@ type CircuitCheckRequest struct {
 
 func (x *CircuitCheckRequest) Reset() {
 	*x = CircuitCheckRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[74]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6151,7 +6466,7 @@ func (x *CircuitCheckRequest) String() string {
 func (*CircuitCheckRequest) ProtoMessage() {}
 
 func (x *CircuitCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[74]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6164,7 +6479,7 @@ func (x *CircuitCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CircuitCheckRequest.ProtoReflect.Descriptor instead.
 func (*CircuitCheckRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{74}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *CircuitCheckRequest) GetSessionId() string {
@@ -6186,7 +6501,7 @@ type CircuitState struct {
 
 func (x *CircuitState) Reset() {
 	*x = CircuitState{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[75]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6198,7 +6513,7 @@ func (x *CircuitState) String() string {
 func (*CircuitState) ProtoMessage() {}
 
 func (x *CircuitState) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[75]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6211,7 +6526,7 @@ func (x *CircuitState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CircuitState.ProtoReflect.Descriptor instead.
 func (*CircuitState) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{75}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *CircuitState) GetCircuitOpen() bool {
@@ -6248,7 +6563,7 @@ type SignedExecId struct {
 
 func (x *SignedExecId) Reset() {
 	*x = SignedExecId{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[76]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6260,7 +6575,7 @@ func (x *SignedExecId) String() string {
 func (*SignedExecId) ProtoMessage() {}
 
 func (x *SignedExecId) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[76]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6273,7 +6588,7 @@ func (x *SignedExecId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedExecId.ProtoReflect.Descriptor instead.
 func (*SignedExecId) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{76}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *SignedExecId) GetExecId() string {
@@ -6312,7 +6627,7 @@ type SandboxExecRequest struct {
 
 func (x *SandboxExecRequest) Reset() {
 	*x = SandboxExecRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[77]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6324,7 +6639,7 @@ func (x *SandboxExecRequest) String() string {
 func (*SandboxExecRequest) ProtoMessage() {}
 
 func (x *SandboxExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[77]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6337,7 +6652,7 @@ func (x *SandboxExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SandboxExecRequest.ProtoReflect.Descriptor instead.
 func (*SandboxExecRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{77}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *SandboxExecRequest) GetSessionId() string {
@@ -6392,7 +6707,7 @@ type SandboxExecResult struct {
 
 func (x *SandboxExecResult) Reset() {
 	*x = SandboxExecResult{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[78]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6404,7 +6719,7 @@ func (x *SandboxExecResult) String() string {
 func (*SandboxExecResult) ProtoMessage() {}
 
 func (x *SandboxExecResult) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[78]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6417,7 +6732,7 @@ func (x *SandboxExecResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SandboxExecResult.ProtoReflect.Descriptor instead.
 func (*SandboxExecResult) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{78}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *SandboxExecResult) GetExecId() string {
@@ -6475,7 +6790,7 @@ type SignExecIdRequest struct {
 
 func (x *SignExecIdRequest) Reset() {
 	*x = SignExecIdRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[79]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6487,7 +6802,7 @@ func (x *SignExecIdRequest) String() string {
 func (*SignExecIdRequest) ProtoMessage() {}
 
 func (x *SignExecIdRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[79]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6500,7 +6815,7 @@ func (x *SignExecIdRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignExecIdRequest.ProtoReflect.Descriptor instead.
 func (*SignExecIdRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{79}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *SignExecIdRequest) GetSessionId() string {
@@ -6538,7 +6853,7 @@ type TokenMapping struct {
 
 func (x *TokenMapping) Reset() {
 	*x = TokenMapping{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[80]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6550,7 +6865,7 @@ func (x *TokenMapping) String() string {
 func (*TokenMapping) ProtoMessage() {}
 
 func (x *TokenMapping) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[80]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6563,7 +6878,7 @@ func (x *TokenMapping) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TokenMapping.ProtoReflect.Descriptor instead.
 func (*TokenMapping) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{80}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *TokenMapping) GetCategory() string {
@@ -6598,7 +6913,7 @@ type TokenizeResult struct {
 
 func (x *TokenizeResult) Reset() {
 	*x = TokenizeResult{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[81]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6610,7 +6925,7 @@ func (x *TokenizeResult) String() string {
 func (*TokenizeResult) ProtoMessage() {}
 
 func (x *TokenizeResult) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[81]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6623,7 +6938,7 @@ func (x *TokenizeResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TokenizeResult.ProtoReflect.Descriptor instead.
 func (*TokenizeResult) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{81}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *TokenizeResult) GetTokenized() string {
@@ -6651,7 +6966,7 @@ type TokenizeRequest struct {
 
 func (x *TokenizeRequest) Reset() {
 	*x = TokenizeRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[82]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6663,7 +6978,7 @@ func (x *TokenizeRequest) String() string {
 func (*TokenizeRequest) ProtoMessage() {}
 
 func (x *TokenizeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[82]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6676,7 +6991,7 @@ func (x *TokenizeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TokenizeRequest.ProtoReflect.Descriptor instead.
 func (*TokenizeRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{82}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *TokenizeRequest) GetSessionId() string {
@@ -6704,7 +7019,7 @@ type DetokenizeResult struct {
 
 func (x *DetokenizeResult) Reset() {
 	*x = DetokenizeResult{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[83]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6716,7 +7031,7 @@ func (x *DetokenizeResult) String() string {
 func (*DetokenizeResult) ProtoMessage() {}
 
 func (x *DetokenizeResult) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[83]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6729,7 +7044,7 @@ func (x *DetokenizeResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetokenizeResult.ProtoReflect.Descriptor instead.
 func (*DetokenizeResult) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{83}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *DetokenizeResult) GetRestored() string {
@@ -6750,7 +7065,7 @@ type DetokenizeRequest struct {
 
 func (x *DetokenizeRequest) Reset() {
 	*x = DetokenizeRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[84]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6762,7 +7077,7 @@ func (x *DetokenizeRequest) String() string {
 func (*DetokenizeRequest) ProtoMessage() {}
 
 func (x *DetokenizeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[84]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6775,7 +7090,7 @@ func (x *DetokenizeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetokenizeRequest.ProtoReflect.Descriptor instead.
 func (*DetokenizeRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{84}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *DetokenizeRequest) GetSessionId() string {
@@ -6804,7 +7119,7 @@ type ScanResult struct {
 
 func (x *ScanResult) Reset() {
 	*x = ScanResult{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[85]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6816,7 +7131,7 @@ func (x *ScanResult) String() string {
 func (*ScanResult) ProtoMessage() {}
 
 func (x *ScanResult) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[85]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6829,7 +7144,7 @@ func (x *ScanResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScanResult.ProtoReflect.Descriptor instead.
 func (*ScanResult) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{85}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *ScanResult) GetClean() bool {
@@ -6860,7 +7175,7 @@ type ScanRequest struct {
 
 func (x *ScanRequest) Reset() {
 	*x = ScanRequest{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[86]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6872,7 +7187,7 @@ func (x *ScanRequest) String() string {
 func (*ScanRequest) ProtoMessage() {}
 
 func (x *ScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[86]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6885,7 +7200,7 @@ func (x *ScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScanRequest.ProtoReflect.Descriptor instead.
 func (*ScanRequest) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{86}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *ScanRequest) GetSessionId() string {
@@ -6922,7 +7237,7 @@ type LeakHit struct {
 
 func (x *LeakHit) Reset() {
 	*x = LeakHit{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[87]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6934,7 +7249,7 @@ func (x *LeakHit) String() string {
 func (*LeakHit) ProtoMessage() {}
 
 func (x *LeakHit) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[87]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6947,7 +7262,7 @@ func (x *LeakHit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeakHit.ProtoReflect.Descriptor instead.
 func (*LeakHit) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{87}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *LeakHit) GetCategory() string {
@@ -6994,7 +7309,7 @@ type Finding struct {
 
 func (x *Finding) Reset() {
 	*x = Finding{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[88]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7006,7 +7321,7 @@ func (x *Finding) String() string {
 func (*Finding) ProtoMessage() {}
 
 func (x *Finding) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[88]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7019,7 +7334,7 @@ func (x *Finding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Finding.ProtoReflect.Descriptor instead.
 func (*Finding) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{88}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *Finding) GetFindingId() string {
@@ -7108,7 +7423,7 @@ type EvidenceSummary struct {
 
 func (x *EvidenceSummary) Reset() {
 	*x = EvidenceSummary{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[89]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7120,7 +7435,7 @@ func (x *EvidenceSummary) String() string {
 func (*EvidenceSummary) ProtoMessage() {}
 
 func (x *EvidenceSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[89]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7133,7 +7448,7 @@ func (x *EvidenceSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvidenceSummary.ProtoReflect.Descriptor instead.
 func (*EvidenceSummary) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{89}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *EvidenceSummary) GetEvidenceCount() uint32 {
@@ -7185,7 +7500,7 @@ type CostSummary struct {
 
 func (x *CostSummary) Reset() {
 	*x = CostSummary{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[90]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7197,7 +7512,7 @@ func (x *CostSummary) String() string {
 func (*CostSummary) ProtoMessage() {}
 
 func (x *CostSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[90]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7210,7 +7525,7 @@ func (x *CostSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CostSummary.ProtoReflect.Descriptor instead.
 func (*CostSummary) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{90}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *CostSummary) GetTotalTokens() uint32 {
@@ -7263,7 +7578,7 @@ type Limitation struct {
 
 func (x *Limitation) Reset() {
 	*x = Limitation{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[91]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7275,7 +7590,7 @@ func (x *Limitation) String() string {
 func (*Limitation) ProtoMessage() {}
 
 func (x *Limitation) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[91]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7288,7 +7603,7 @@ func (x *Limitation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Limitation.ProtoReflect.Descriptor instead.
 func (*Limitation) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{91}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *Limitation) GetCategory() string {
@@ -7330,7 +7645,7 @@ type Report struct {
 
 func (x *Report) Reset() {
 	*x = Report{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[92]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7342,7 +7657,7 @@ func (x *Report) String() string {
 func (*Report) ProtoMessage() {}
 
 func (x *Report) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[92]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7355,7 +7670,7 @@ func (x *Report) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Report.ProtoReflect.Descriptor instead.
 func (*Report) Descriptor() ([]byte, []int) {
-	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{92}
+	return file_aleth_v1_aletheia_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *Report) GetSessionId() string {
@@ -7423,7 +7738,7 @@ type ListAdaptersResponse_AdapterInfo struct {
 
 func (x *ListAdaptersResponse_AdapterInfo) Reset() {
 	*x = ListAdaptersResponse_AdapterInfo{}
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[97]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7435,7 +7750,7 @@ func (x *ListAdaptersResponse_AdapterInfo) String() string {
 func (*ListAdaptersResponse_AdapterInfo) ProtoMessage() {}
 
 func (x *ListAdaptersResponse_AdapterInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_aleth_v1_aletheia_proto_msgTypes[97]
+	mi := &file_aleth_v1_aletheia_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7713,7 +8028,7 @@ const file_aleth_v1_aletheia_proto_rawDesc = "" +
 	"\vfocal_point\x18\t \x01(\tR\n" +
 	"focalPoint\x12+\n" +
 	"\x11selection_reasons\x18\n" +
-	" \x03(\tR\x10selectionReasons\"\xfd\x01\n" +
+	" \x03(\tR\x10selectionReasons\"\xe5\x02\n" +
 	"\x0fAssembleRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x1d\n" +
 	"\n" +
@@ -7722,7 +8037,10 @@ const file_aleth_v1_aletheia_proto_rawDesc = "" +
 	"focus_hint\x18\x03 \x01(\tR\tfocusHint\x12#\n" +
 	"\rbudget_tokens\x18\x04 \x01(\rR\fbudgetTokens\x12E\n" +
 	"\x0epreferred_stop\x18\x05 \x01(\x0e2\x1e.aleth.v1.ApertureSetting.StopR\rpreferredStop\x12'\n" +
-	"\x0fallow_downgrade\x18\x06 \x01(\bR\x0eallowDowngrade\"j\n" +
+	"\x0fallow_downgrade\x18\x06 \x01(\bR\x0eallowDowngrade\x12\x19\n" +
+	"\bmax_hops\x18\a \x01(\rR\amaxHops\x12!\n" +
+	"\fmax_entities\x18\b \x01(\rR\vmaxEntities\x12(\n" +
+	"\x10depth_per_entity\x18\t \x01(\rR\x0edepthPerEntity\"j\n" +
 	"\x10AutofocusRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x1d\n" +
 	"\n" +
@@ -7886,7 +8204,35 @@ const file_aleth_v1_aletheia_proto_rawDesc = "" +
 	"session_id\x18\x02 \x01(\tR\tsessionId\x12$\n" +
 	"\x05tasks\x18\x03 \x03(\v2\x0e.aleth.v1.TaskR\x05tasks\x12#\n" +
 	"\rplan_revision\x18\x04 \x01(\tR\fplanRevision\x12%\n" +
-	"\x0eplan_rationale\x18\x05 \x01(\tR\rplanRationale\"\x8d\x01\n" +
+	"\x0eplan_rationale\x18\x05 \x01(\tR\rplanRationale\"K\n" +
+	"\x0fGetGraphRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x19\n" +
+	"\bgraph_id\x18\x02 \x01(\tR\agraphId\"C\n" +
+	"\x13ListSessionsRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\rR\x05limit\x12\x16\n" +
+	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"m\n" +
+	"\x14ListSessionsResponse\x124\n" +
+	"\bsessions\x18\x01 \x03(\v2\x18.aleth.v1.SessionSummaryR\bsessions\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"\xb7\x03\n" +
+	"\x0eSessionSummary\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x03 \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"task_total\x18\x04 \x01(\rR\ttaskTotal\x12\x1b\n" +
+	"\ttask_done\x18\x05 \x01(\rR\btaskDone\x12\x1f\n" +
+	"\vtask_failed\x18\x06 \x01(\rR\n" +
+	"taskFailed\x12.\n" +
+	"\x13budget_total_tokens\x18\a \x01(\rR\x11budgetTotalTokens\x124\n" +
+	"\x16budget_consumed_tokens\x18\b \x01(\rR\x14budgetConsumedTokens\x12.\n" +
+	"\x13budget_circuit_open\x18\t \x01(\bR\x11budgetCircuitOpen\x12-\n" +
+	"\x12findings_candidate\x18\n" +
+	" \x01(\rR\x11findingsCandidate\x12-\n" +
+	"\x12findings_confirmed\x18\v \x01(\rR\x11findingsConfirmed\"\x8d\x01\n" +
 	"\vPlanRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12:\n" +
@@ -8244,7 +8590,7 @@ const file_aleth_v1_aletheia_proto_rawDesc = "" +
 	"\fTraceFinding\x12\x1d.aleth.v1.TraceFindingRequest\x1a\x1d.aleth.v1.TracedEvidenceChain\x12Y\n" +
 	"\x13ReportHallucination\x12$.aleth.v1.ReportHallucinationRequest\x1a\x1c.aleth.v1.HallucinationState2g\n" +
 	"\x12TerminationService\x12Q\n" +
-	"\x12RequestTermination\x12\x1c.aleth.v1.TerminationRequest\x1a\x1d.aleth.v1.TerminationDecision2\xcf\x03\n" +
+	"\x12RequestTermination\x12\x1c.aleth.v1.TerminationRequest\x1a\x1d.aleth.v1.TerminationDecision2\xda\x04\n" +
 	"\x13OrchestratorService\x122\n" +
 	"\x04Plan\x12\x15.aleth.v1.PlanRequest\x1a\x13.aleth.v1.TaskGraph\x12D\n" +
 	"\tNextReady\x12\x1a.aleth.v1.NextReadyRequest\x1a\x1b.aleth.v1.NextReadyResponse\x12Q\n" +
@@ -8253,7 +8599,9 @@ const file_aleth_v1_aletheia_proto_rawDesc = "" +
 	"\n" +
 	"Checkpoint\x12\x1b.aleth.v1.CheckpointRequest\x1a\x18.aleth.v1.CheckpointInfo\x129\n" +
 	"\x06Rewind\x12\x17.aleth.v1.RewindRequest\x1a\x16.aleth.v1.RewindResult\x123\n" +
-	"\x04Fork\x12\x15.aleth.v1.ForkRequest\x1a\x14.aleth.v1.ForkResult2\x8e\x01\n" +
+	"\x04Fork\x12\x15.aleth.v1.ForkRequest\x1a\x14.aleth.v1.ForkResult\x12:\n" +
+	"\bGetGraph\x12\x19.aleth.v1.GetGraphRequest\x1a\x13.aleth.v1.TaskGraph\x12M\n" +
+	"\fListSessions\x12\x1d.aleth.v1.ListSessionsRequest\x1a\x1e.aleth.v1.ListSessionsResponse2\x8e\x01\n" +
 	"\fScopeService\x12@\n" +
 	"\x05Check\x12\x1b.aleth.v1.ScopeCheckRequest\x1a\x1a.aleth.v1.ScopeCheckResult\x12<\n" +
 	"\tLoadScope\x12\x1a.aleth.v1.LoadScopeRequest\x1a\x13.aleth.v1.ScopeInfo2\x90\x02\n" +
@@ -8286,7 +8634,7 @@ func file_aleth_v1_aletheia_proto_rawDescGZIP() []byte {
 }
 
 var file_aleth_v1_aletheia_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
-var file_aleth_v1_aletheia_proto_msgTypes = make([]protoimpl.MessageInfo, 102)
+var file_aleth_v1_aletheia_proto_msgTypes = make([]protoimpl.MessageInfo, 106)
 var file_aleth_v1_aletheia_proto_goTypes = []any{
 	(ErrorCode)(0),                           // 0: aleth.v1.ErrorCode
 	(ScopeLayer)(0),                          // 1: aleth.v1.ScopeLayer
@@ -8354,88 +8702,92 @@ var file_aleth_v1_aletheia_proto_goTypes = []any{
 	(*Task)(nil),                             // 63: aleth.v1.Task
 	(*FailureRecord)(nil),                    // 64: aleth.v1.FailureRecord
 	(*TaskGraph)(nil),                        // 65: aleth.v1.TaskGraph
-	(*PlanRequest)(nil),                      // 66: aleth.v1.PlanRequest
-	(*NextReadyRequest)(nil),                 // 67: aleth.v1.NextReadyRequest
-	(*NextReadyResponse)(nil),                // 68: aleth.v1.NextReadyResponse
-	(*ReportTaskResultRequest)(nil),          // 69: aleth.v1.ReportTaskResultRequest
-	(*TaskUpdateResult)(nil),                 // 70: aleth.v1.TaskUpdateResult
-	(*RefineRequest)(nil),                    // 71: aleth.v1.RefineRequest
-	(*CheckpointRequest)(nil),                // 72: aleth.v1.CheckpointRequest
-	(*CheckpointInfo)(nil),                   // 73: aleth.v1.CheckpointInfo
-	(*RewindRequest)(nil),                    // 74: aleth.v1.RewindRequest
-	(*RewindResult)(nil),                     // 75: aleth.v1.RewindResult
-	(*ForkRequest)(nil),                      // 76: aleth.v1.ForkRequest
-	(*ForkResult)(nil),                       // 77: aleth.v1.ForkResult
-	(*ScopeCheckResult)(nil),                 // 78: aleth.v1.ScopeCheckResult
-	(*ScopeCheckRequest)(nil),                // 79: aleth.v1.ScopeCheckRequest
-	(*LoadScopeRequest)(nil),                 // 80: aleth.v1.LoadScopeRequest
-	(*BudgetState)(nil),                      // 81: aleth.v1.BudgetState
-	(*ReserveRequest)(nil),                   // 82: aleth.v1.ReserveRequest
-	(*ReserveResult)(nil),                    // 83: aleth.v1.ReserveResult
-	(*ConsumeRequest)(nil),                   // 84: aleth.v1.ConsumeRequest
-	(*BudgetStateRequest)(nil),               // 85: aleth.v1.BudgetStateRequest
-	(*CircuitCheckRequest)(nil),              // 86: aleth.v1.CircuitCheckRequest
-	(*CircuitState)(nil),                     // 87: aleth.v1.CircuitState
-	(*SignedExecId)(nil),                     // 88: aleth.v1.SignedExecId
-	(*SandboxExecRequest)(nil),               // 89: aleth.v1.SandboxExecRequest
-	(*SandboxExecResult)(nil),                // 90: aleth.v1.SandboxExecResult
-	(*SignExecIdRequest)(nil),                // 91: aleth.v1.SignExecIdRequest
-	(*TokenMapping)(nil),                     // 92: aleth.v1.TokenMapping
-	(*TokenizeResult)(nil),                   // 93: aleth.v1.TokenizeResult
-	(*TokenizeRequest)(nil),                  // 94: aleth.v1.TokenizeRequest
-	(*DetokenizeResult)(nil),                 // 95: aleth.v1.DetokenizeResult
-	(*DetokenizeRequest)(nil),                // 96: aleth.v1.DetokenizeRequest
-	(*ScanResult)(nil),                       // 97: aleth.v1.ScanResult
-	(*ScanRequest)(nil),                      // 98: aleth.v1.ScanRequest
-	(*LeakHit)(nil),                          // 99: aleth.v1.LeakHit
-	(*Finding)(nil),                          // 100: aleth.v1.Finding
-	(*EvidenceSummary)(nil),                  // 101: aleth.v1.EvidenceSummary
-	(*CostSummary)(nil),                      // 102: aleth.v1.CostSummary
-	(*Limitation)(nil),                       // 103: aleth.v1.Limitation
-	(*Report)(nil),                           // 104: aleth.v1.Report
-	nil,                                      // 105: aleth.v1.Error.ContextEntry
-	nil,                                      // 106: aleth.v1.SpectrumLine.VarsEntry
-	nil,                                      // 107: aleth.v1.EntityDraft.AttributesEntry
-	nil,                                      // 108: aleth.v1.ToolRequest.ParamsEntry
-	(*ListAdaptersResponse_AdapterInfo)(nil), // 109: aleth.v1.ListAdaptersResponse.AdapterInfo
-	nil,                                      // 110: aleth.v1.Entity.AttributesEntry
-	nil,                                      // 111: aleth.v1.Relation.AttributesEntry
-	nil,                                      // 112: aleth.v1.NextReadyResponse.BlockedReasonsEntry
-	nil,                                      // 113: aleth.v1.SandboxExecRequest.ParamsEntry
-	(*timestamppb.Timestamp)(nil),            // 114: google.protobuf.Timestamp
+	(*GetGraphRequest)(nil),                  // 66: aleth.v1.GetGraphRequest
+	(*ListSessionsRequest)(nil),              // 67: aleth.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),             // 68: aleth.v1.ListSessionsResponse
+	(*SessionSummary)(nil),                   // 69: aleth.v1.SessionSummary
+	(*PlanRequest)(nil),                      // 70: aleth.v1.PlanRequest
+	(*NextReadyRequest)(nil),                 // 71: aleth.v1.NextReadyRequest
+	(*NextReadyResponse)(nil),                // 72: aleth.v1.NextReadyResponse
+	(*ReportTaskResultRequest)(nil),          // 73: aleth.v1.ReportTaskResultRequest
+	(*TaskUpdateResult)(nil),                 // 74: aleth.v1.TaskUpdateResult
+	(*RefineRequest)(nil),                    // 75: aleth.v1.RefineRequest
+	(*CheckpointRequest)(nil),                // 76: aleth.v1.CheckpointRequest
+	(*CheckpointInfo)(nil),                   // 77: aleth.v1.CheckpointInfo
+	(*RewindRequest)(nil),                    // 78: aleth.v1.RewindRequest
+	(*RewindResult)(nil),                     // 79: aleth.v1.RewindResult
+	(*ForkRequest)(nil),                      // 80: aleth.v1.ForkRequest
+	(*ForkResult)(nil),                       // 81: aleth.v1.ForkResult
+	(*ScopeCheckResult)(nil),                 // 82: aleth.v1.ScopeCheckResult
+	(*ScopeCheckRequest)(nil),                // 83: aleth.v1.ScopeCheckRequest
+	(*LoadScopeRequest)(nil),                 // 84: aleth.v1.LoadScopeRequest
+	(*BudgetState)(nil),                      // 85: aleth.v1.BudgetState
+	(*ReserveRequest)(nil),                   // 86: aleth.v1.ReserveRequest
+	(*ReserveResult)(nil),                    // 87: aleth.v1.ReserveResult
+	(*ConsumeRequest)(nil),                   // 88: aleth.v1.ConsumeRequest
+	(*BudgetStateRequest)(nil),               // 89: aleth.v1.BudgetStateRequest
+	(*CircuitCheckRequest)(nil),              // 90: aleth.v1.CircuitCheckRequest
+	(*CircuitState)(nil),                     // 91: aleth.v1.CircuitState
+	(*SignedExecId)(nil),                     // 92: aleth.v1.SignedExecId
+	(*SandboxExecRequest)(nil),               // 93: aleth.v1.SandboxExecRequest
+	(*SandboxExecResult)(nil),                // 94: aleth.v1.SandboxExecResult
+	(*SignExecIdRequest)(nil),                // 95: aleth.v1.SignExecIdRequest
+	(*TokenMapping)(nil),                     // 96: aleth.v1.TokenMapping
+	(*TokenizeResult)(nil),                   // 97: aleth.v1.TokenizeResult
+	(*TokenizeRequest)(nil),                  // 98: aleth.v1.TokenizeRequest
+	(*DetokenizeResult)(nil),                 // 99: aleth.v1.DetokenizeResult
+	(*DetokenizeRequest)(nil),                // 100: aleth.v1.DetokenizeRequest
+	(*ScanResult)(nil),                       // 101: aleth.v1.ScanResult
+	(*ScanRequest)(nil),                      // 102: aleth.v1.ScanRequest
+	(*LeakHit)(nil),                          // 103: aleth.v1.LeakHit
+	(*Finding)(nil),                          // 104: aleth.v1.Finding
+	(*EvidenceSummary)(nil),                  // 105: aleth.v1.EvidenceSummary
+	(*CostSummary)(nil),                      // 106: aleth.v1.CostSummary
+	(*Limitation)(nil),                       // 107: aleth.v1.Limitation
+	(*Report)(nil),                           // 108: aleth.v1.Report
+	nil,                                      // 109: aleth.v1.Error.ContextEntry
+	nil,                                      // 110: aleth.v1.SpectrumLine.VarsEntry
+	nil,                                      // 111: aleth.v1.EntityDraft.AttributesEntry
+	nil,                                      // 112: aleth.v1.ToolRequest.ParamsEntry
+	(*ListAdaptersResponse_AdapterInfo)(nil), // 113: aleth.v1.ListAdaptersResponse.AdapterInfo
+	nil,                                      // 114: aleth.v1.Entity.AttributesEntry
+	nil,                                      // 115: aleth.v1.Relation.AttributesEntry
+	nil,                                      // 116: aleth.v1.NextReadyResponse.BlockedReasonsEntry
+	nil,                                      // 117: aleth.v1.SandboxExecRequest.ParamsEntry
+	(*timestamppb.Timestamp)(nil),            // 118: google.protobuf.Timestamp
 }
 var file_aleth_v1_aletheia_proto_depIdxs = []int32{
 	0,   // 0: aleth.v1.Error.code:type_name -> aleth.v1.ErrorCode
-	105, // 1: aleth.v1.Error.context:type_name -> aleth.v1.Error.ContextEntry
+	109, // 1: aleth.v1.Error.context:type_name -> aleth.v1.Error.ContextEntry
 	14,  // 2: aleth.v1.EvidenceSpectrum.tool:type_name -> aleth.v1.ToolInvocation
 	15,  // 3: aleth.v1.EvidenceSpectrum.raw:type_name -> aleth.v1.RawOutputRef
 	16,  // 4: aleth.v1.EvidenceSpectrum.lines:type_name -> aleth.v1.SpectrumLine
 	17,  // 5: aleth.v1.EvidenceSpectrum.entities:type_name -> aleth.v1.EntityDraft
 	18,  // 6: aleth.v1.EvidenceSpectrum.quality:type_name -> aleth.v1.ParseQuality
-	114, // 7: aleth.v1.EvidenceSpectrum.observed_at:type_name -> google.protobuf.Timestamp
-	106, // 8: aleth.v1.SpectrumLine.vars:type_name -> aleth.v1.SpectrumLine.VarsEntry
+	118, // 7: aleth.v1.EvidenceSpectrum.observed_at:type_name -> google.protobuf.Timestamp
+	110, // 8: aleth.v1.SpectrumLine.vars:type_name -> aleth.v1.SpectrumLine.VarsEntry
 	2,   // 9: aleth.v1.EntityDraft.kind:type_name -> aleth.v1.EntityKind
-	107, // 10: aleth.v1.EntityDraft.attributes:type_name -> aleth.v1.EntityDraft.AttributesEntry
-	108, // 11: aleth.v1.ToolRequest.params:type_name -> aleth.v1.ToolRequest.ParamsEntry
-	109, // 12: aleth.v1.ListAdaptersResponse.adapters:type_name -> aleth.v1.ListAdaptersResponse.AdapterInfo
+	111, // 10: aleth.v1.EntityDraft.attributes:type_name -> aleth.v1.EntityDraft.AttributesEntry
+	112, // 11: aleth.v1.ToolRequest.params:type_name -> aleth.v1.ToolRequest.ParamsEntry
+	113, // 12: aleth.v1.ListAdaptersResponse.adapters:type_name -> aleth.v1.ListAdaptersResponse.AdapterInfo
 	12,  // 13: aleth.v1.ValidateToolResponse.error:type_name -> aleth.v1.Error
 	2,   // 14: aleth.v1.Entity.kind:type_name -> aleth.v1.EntityKind
-	110, // 15: aleth.v1.Entity.attributes:type_name -> aleth.v1.Entity.AttributesEntry
-	114, // 16: aleth.v1.Entity.valid_from:type_name -> google.protobuf.Timestamp
-	114, // 17: aleth.v1.Entity.valid_to:type_name -> google.protobuf.Timestamp
+	114, // 15: aleth.v1.Entity.attributes:type_name -> aleth.v1.Entity.AttributesEntry
+	118, // 16: aleth.v1.Entity.valid_from:type_name -> google.protobuf.Timestamp
+	118, // 17: aleth.v1.Entity.valid_to:type_name -> google.protobuf.Timestamp
 	25,  // 18: aleth.v1.Entity.sources:type_name -> aleth.v1.Provenance
 	3,   // 19: aleth.v1.Provenance.source_kind:type_name -> aleth.v1.SourceKind
-	114, // 20: aleth.v1.Provenance.observed_at:type_name -> google.protobuf.Timestamp
+	118, // 20: aleth.v1.Provenance.observed_at:type_name -> google.protobuf.Timestamp
 	4,   // 21: aleth.v1.Relation.type:type_name -> aleth.v1.RelationType
-	111, // 22: aleth.v1.Relation.attributes:type_name -> aleth.v1.Relation.AttributesEntry
-	114, // 23: aleth.v1.Relation.valid_from:type_name -> google.protobuf.Timestamp
+	115, // 22: aleth.v1.Relation.attributes:type_name -> aleth.v1.Relation.AttributesEntry
+	118, // 23: aleth.v1.Relation.valid_from:type_name -> google.protobuf.Timestamp
 	24,  // 24: aleth.v1.ProjectedSubgraph.entities:type_name -> aleth.v1.Entity
 	26,  // 25: aleth.v1.ProjectedSubgraph.relations:type_name -> aleth.v1.Relation
 	30,  // 26: aleth.v1.IngestResult.conflicts:type_name -> aleth.v1.Conflict
 	25,  // 27: aleth.v1.Conflict.competing_sources:type_name -> aleth.v1.Provenance
 	2,   // 28: aleth.v1.ProjectRequest.kinds:type_name -> aleth.v1.EntityKind
-	114, // 29: aleth.v1.SnapshotAtRequest.at:type_name -> google.protobuf.Timestamp
-	114, // 30: aleth.v1.BranchInfo.created_at:type_name -> google.protobuf.Timestamp
+	118, // 29: aleth.v1.SnapshotAtRequest.at:type_name -> google.protobuf.Timestamp
+	118, // 30: aleth.v1.BranchInfo.created_at:type_name -> google.protobuf.Timestamp
 	30,  // 31: aleth.v1.MergeResult.unresolved_conflicts:type_name -> aleth.v1.Conflict
 	12,  // 32: aleth.v1.MergeResult.error:type_name -> aleth.v1.Error
 	11,  // 33: aleth.v1.ApertureSetting.stop:type_name -> aleth.v1.ApertureSetting.Stop
@@ -8450,7 +8802,7 @@ var file_aleth_v1_aletheia_proto_depIdxs = []int32{
 	45,  // 42: aleth.v1.EvidenceEntry.assertions:type_name -> aleth.v1.Assertion
 	46,  // 43: aleth.v1.EvidenceEntry.side_effects:type_name -> aleth.v1.SideEffectObservation
 	47,  // 44: aleth.v1.EvidenceEntry.reproducibility:type_name -> aleth.v1.ReproSpec
-	114, // 45: aleth.v1.EvidenceEntry.created_at:type_name -> google.protobuf.Timestamp
+	118, // 45: aleth.v1.EvidenceEntry.created_at:type_name -> google.protobuf.Timestamp
 	6,   // 46: aleth.v1.Assertion.type:type_name -> aleth.v1.AssertionType
 	7,   // 47: aleth.v1.SideEffectObservation.kind:type_name -> aleth.v1.ObserverKind
 	48,  // 48: aleth.v1.ValidateAssertionResult.g1_exec_bound:type_name -> aleth.v1.GateResult
@@ -8460,7 +8812,7 @@ var file_aleth_v1_aletheia_proto_depIdxs = []int32{
 	5,   // 52: aleth.v1.ValidateAssertionResult.resulting_status:type_name -> aleth.v1.FindingStatus
 	12,  // 53: aleth.v1.ValidateAssertionResult.errors:type_name -> aleth.v1.Error
 	44,  // 54: aleth.v1.AppendEvidenceRequest.entry:type_name -> aleth.v1.EvidenceEntry
-	88,  // 55: aleth.v1.AppendEvidenceRequest.signed_exec_id:type_name -> aleth.v1.SignedExecId
+	92,  // 55: aleth.v1.AppendEvidenceRequest.signed_exec_id:type_name -> aleth.v1.SignedExecId
 	12,  // 56: aleth.v1.AppendEvidenceResult.error:type_name -> aleth.v1.Error
 	45,  // 57: aleth.v1.ValidateAssertionRequest.assertion:type_name -> aleth.v1.Assertion
 	46,  // 58: aleth.v1.RecordSideEffectRequest.observation:type_name -> aleth.v1.SideEffectObservation
@@ -8479,115 +8831,120 @@ var file_aleth_v1_aletheia_proto_depIdxs = []int32{
 	40,  // 71: aleth.v1.Task.context:type_name -> aleth.v1.ContextBundle
 	64,  // 72: aleth.v1.Task.failures:type_name -> aleth.v1.FailureRecord
 	63,  // 73: aleth.v1.TaskGraph.tasks:type_name -> aleth.v1.Task
-	65,  // 74: aleth.v1.PlanRequest.proposed_graph:type_name -> aleth.v1.TaskGraph
-	112, // 75: aleth.v1.NextReadyResponse.blocked_reasons:type_name -> aleth.v1.NextReadyResponse.BlockedReasonsEntry
-	10,  // 76: aleth.v1.ReportTaskResultRequest.status:type_name -> aleth.v1.TaskStatus
-	64,  // 77: aleth.v1.ReportTaskResultRequest.failures:type_name -> aleth.v1.FailureRecord
-	63,  // 78: aleth.v1.TaskUpdateResult.updated_task:type_name -> aleth.v1.Task
-	65,  // 79: aleth.v1.TaskUpdateResult.updated_graph:type_name -> aleth.v1.TaskGraph
-	12,  // 80: aleth.v1.TaskUpdateResult.error:type_name -> aleth.v1.Error
-	64,  // 81: aleth.v1.RefineRequest.failures:type_name -> aleth.v1.FailureRecord
-	114, // 82: aleth.v1.CheckpointInfo.created_at:type_name -> google.protobuf.Timestamp
-	12,  // 83: aleth.v1.RewindResult.error:type_name -> aleth.v1.Error
-	12,  // 84: aleth.v1.ForkResult.error:type_name -> aleth.v1.Error
-	1,   // 85: aleth.v1.ScopeCheckResult.failed_layer:type_name -> aleth.v1.ScopeLayer
-	1,   // 86: aleth.v1.ScopeCheckRequest.layer:type_name -> aleth.v1.ScopeLayer
-	81,  // 87: aleth.v1.ReserveResult.state:type_name -> aleth.v1.BudgetState
-	12,  // 88: aleth.v1.ReserveResult.error:type_name -> aleth.v1.Error
-	81,  // 89: aleth.v1.CircuitState.budget:type_name -> aleth.v1.BudgetState
-	114, // 90: aleth.v1.SignedExecId.issued_at:type_name -> google.protobuf.Timestamp
-	113, // 91: aleth.v1.SandboxExecRequest.params:type_name -> aleth.v1.SandboxExecRequest.ParamsEntry
-	15,  // 92: aleth.v1.SandboxExecResult.stdout_ref:type_name -> aleth.v1.RawOutputRef
-	15,  // 93: aleth.v1.SandboxExecResult.stderr_ref:type_name -> aleth.v1.RawOutputRef
-	12,  // 94: aleth.v1.SandboxExecResult.error:type_name -> aleth.v1.Error
-	92,  // 95: aleth.v1.TokenizeResult.mappings:type_name -> aleth.v1.TokenMapping
-	99,  // 96: aleth.v1.ScanResult.hits:type_name -> aleth.v1.LeakHit
-	5,   // 97: aleth.v1.Finding.status:type_name -> aleth.v1.FindingStatus
-	47,  // 98: aleth.v1.Finding.reproducibility:type_name -> aleth.v1.ReproSpec
-	46,  // 99: aleth.v1.Finding.side_effects:type_name -> aleth.v1.SideEffectObservation
-	27,  // 100: aleth.v1.Report.scope:type_name -> aleth.v1.ScopeInfo
-	100, // 101: aleth.v1.Report.confirmed:type_name -> aleth.v1.Finding
-	100, // 102: aleth.v1.Report.candidates:type_name -> aleth.v1.Finding
-	101, // 103: aleth.v1.Report.evidence_summary:type_name -> aleth.v1.EvidenceSummary
-	102, // 104: aleth.v1.Report.cost:type_name -> aleth.v1.CostSummary
-	103, // 105: aleth.v1.Report.limitations:type_name -> aleth.v1.Limitation
-	19,  // 106: aleth.v1.IngestService.Execute:input_type -> aleth.v1.ToolRequest
-	20,  // 107: aleth.v1.IngestService.ListAdapters:input_type -> aleth.v1.ListAdaptersRequest
-	22,  // 108: aleth.v1.IngestService.ValidateTool:input_type -> aleth.v1.ValidateToolRequest
-	13,  // 109: aleth.v1.PrismService.Ingest:input_type -> aleth.v1.EvidenceSpectrum
-	31,  // 110: aleth.v1.PrismService.Project:input_type -> aleth.v1.ProjectRequest
-	32,  // 111: aleth.v1.PrismService.SnapshotAt:input_type -> aleth.v1.SnapshotAtRequest
-	33,  // 112: aleth.v1.PrismService.CreateBranch:input_type -> aleth.v1.CreateBranchRequest
-	35,  // 113: aleth.v1.PrismService.RollbackBranch:input_type -> aleth.v1.RollbackBranchRequest
-	37,  // 114: aleth.v1.PrismService.MergeBranch:input_type -> aleth.v1.MergeBranchRequest
-	41,  // 115: aleth.v1.ApertureService.Assemble:input_type -> aleth.v1.AssembleRequest
-	42,  // 116: aleth.v1.ApertureService.Autofocus:input_type -> aleth.v1.AutofocusRequest
-	50,  // 117: aleth.v1.LedgerService.Append:input_type -> aleth.v1.AppendEvidenceRequest
-	52,  // 118: aleth.v1.LedgerService.ValidateAssertion:input_type -> aleth.v1.ValidateAssertionRequest
-	53,  // 119: aleth.v1.LedgerService.RecordSideEffect:input_type -> aleth.v1.RecordSideEffectRequest
-	55,  // 120: aleth.v1.LedgerService.Reproduce:input_type -> aleth.v1.ReproduceRequest
-	57,  // 121: aleth.v1.LedgerService.TraceFinding:input_type -> aleth.v1.TraceFindingRequest
-	59,  // 122: aleth.v1.LedgerService.ReportHallucination:input_type -> aleth.v1.ReportHallucinationRequest
-	61,  // 123: aleth.v1.TerminationService.RequestTermination:input_type -> aleth.v1.TerminationRequest
-	66,  // 124: aleth.v1.OrchestratorService.Plan:input_type -> aleth.v1.PlanRequest
-	67,  // 125: aleth.v1.OrchestratorService.NextReady:input_type -> aleth.v1.NextReadyRequest
-	69,  // 126: aleth.v1.OrchestratorService.ReportTaskResult:input_type -> aleth.v1.ReportTaskResultRequest
-	71,  // 127: aleth.v1.OrchestratorService.Refine:input_type -> aleth.v1.RefineRequest
-	72,  // 128: aleth.v1.OrchestratorService.Checkpoint:input_type -> aleth.v1.CheckpointRequest
-	74,  // 129: aleth.v1.OrchestratorService.Rewind:input_type -> aleth.v1.RewindRequest
-	76,  // 130: aleth.v1.OrchestratorService.Fork:input_type -> aleth.v1.ForkRequest
-	79,  // 131: aleth.v1.ScopeService.Check:input_type -> aleth.v1.ScopeCheckRequest
-	80,  // 132: aleth.v1.ScopeService.LoadScope:input_type -> aleth.v1.LoadScopeRequest
-	82,  // 133: aleth.v1.GovernorService.Reserve:input_type -> aleth.v1.ReserveRequest
-	84,  // 134: aleth.v1.GovernorService.Consume:input_type -> aleth.v1.ConsumeRequest
-	85,  // 135: aleth.v1.GovernorService.State:input_type -> aleth.v1.BudgetStateRequest
-	86,  // 136: aleth.v1.GovernorService.CheckCircuit:input_type -> aleth.v1.CircuitCheckRequest
-	89,  // 137: aleth.v1.SandboxService.Execute:input_type -> aleth.v1.SandboxExecRequest
-	91,  // 138: aleth.v1.SandboxService.SignExecId:input_type -> aleth.v1.SignExecIdRequest
-	94,  // 139: aleth.v1.GatewayService.Tokenize:input_type -> aleth.v1.TokenizeRequest
-	96,  // 140: aleth.v1.GatewayService.Detokenize:input_type -> aleth.v1.DetokenizeRequest
-	98,  // 141: aleth.v1.GatewayService.ScanOutbound:input_type -> aleth.v1.ScanRequest
-	13,  // 142: aleth.v1.IngestService.Execute:output_type -> aleth.v1.EvidenceSpectrum
-	21,  // 143: aleth.v1.IngestService.ListAdapters:output_type -> aleth.v1.ListAdaptersResponse
-	23,  // 144: aleth.v1.IngestService.ValidateTool:output_type -> aleth.v1.ValidateToolResponse
-	29,  // 145: aleth.v1.PrismService.Ingest:output_type -> aleth.v1.IngestResult
-	28,  // 146: aleth.v1.PrismService.Project:output_type -> aleth.v1.ProjectedSubgraph
-	28,  // 147: aleth.v1.PrismService.SnapshotAt:output_type -> aleth.v1.ProjectedSubgraph
-	34,  // 148: aleth.v1.PrismService.CreateBranch:output_type -> aleth.v1.BranchInfo
-	36,  // 149: aleth.v1.PrismService.RollbackBranch:output_type -> aleth.v1.RollbackResult
-	38,  // 150: aleth.v1.PrismService.MergeBranch:output_type -> aleth.v1.MergeResult
-	40,  // 151: aleth.v1.ApertureService.Assemble:output_type -> aleth.v1.ContextBundle
-	43,  // 152: aleth.v1.ApertureService.Autofocus:output_type -> aleth.v1.AutofocusResult
-	51,  // 153: aleth.v1.LedgerService.Append:output_type -> aleth.v1.AppendEvidenceResult
-	49,  // 154: aleth.v1.LedgerService.ValidateAssertion:output_type -> aleth.v1.ValidateAssertionResult
-	54,  // 155: aleth.v1.LedgerService.RecordSideEffect:output_type -> aleth.v1.RecordSideEffectResult
-	56,  // 156: aleth.v1.LedgerService.Reproduce:output_type -> aleth.v1.ReproduceResult
-	58,  // 157: aleth.v1.LedgerService.TraceFinding:output_type -> aleth.v1.TracedEvidenceChain
-	60,  // 158: aleth.v1.LedgerService.ReportHallucination:output_type -> aleth.v1.HallucinationState
-	62,  // 159: aleth.v1.TerminationService.RequestTermination:output_type -> aleth.v1.TerminationDecision
-	65,  // 160: aleth.v1.OrchestratorService.Plan:output_type -> aleth.v1.TaskGraph
-	68,  // 161: aleth.v1.OrchestratorService.NextReady:output_type -> aleth.v1.NextReadyResponse
-	70,  // 162: aleth.v1.OrchestratorService.ReportTaskResult:output_type -> aleth.v1.TaskUpdateResult
-	65,  // 163: aleth.v1.OrchestratorService.Refine:output_type -> aleth.v1.TaskGraph
-	73,  // 164: aleth.v1.OrchestratorService.Checkpoint:output_type -> aleth.v1.CheckpointInfo
-	75,  // 165: aleth.v1.OrchestratorService.Rewind:output_type -> aleth.v1.RewindResult
-	77,  // 166: aleth.v1.OrchestratorService.Fork:output_type -> aleth.v1.ForkResult
-	78,  // 167: aleth.v1.ScopeService.Check:output_type -> aleth.v1.ScopeCheckResult
-	27,  // 168: aleth.v1.ScopeService.LoadScope:output_type -> aleth.v1.ScopeInfo
-	83,  // 169: aleth.v1.GovernorService.Reserve:output_type -> aleth.v1.ReserveResult
-	81,  // 170: aleth.v1.GovernorService.Consume:output_type -> aleth.v1.BudgetState
-	81,  // 171: aleth.v1.GovernorService.State:output_type -> aleth.v1.BudgetState
-	87,  // 172: aleth.v1.GovernorService.CheckCircuit:output_type -> aleth.v1.CircuitState
-	90,  // 173: aleth.v1.SandboxService.Execute:output_type -> aleth.v1.SandboxExecResult
-	88,  // 174: aleth.v1.SandboxService.SignExecId:output_type -> aleth.v1.SignedExecId
-	93,  // 175: aleth.v1.GatewayService.Tokenize:output_type -> aleth.v1.TokenizeResult
-	95,  // 176: aleth.v1.GatewayService.Detokenize:output_type -> aleth.v1.DetokenizeResult
-	97,  // 177: aleth.v1.GatewayService.ScanOutbound:output_type -> aleth.v1.ScanResult
-	142, // [142:178] is the sub-list for method output_type
-	106, // [106:142] is the sub-list for method input_type
-	106, // [106:106] is the sub-list for extension type_name
-	106, // [106:106] is the sub-list for extension extendee
-	0,   // [0:106] is the sub-list for field type_name
+	69,  // 74: aleth.v1.ListSessionsResponse.sessions:type_name -> aleth.v1.SessionSummary
+	65,  // 75: aleth.v1.PlanRequest.proposed_graph:type_name -> aleth.v1.TaskGraph
+	116, // 76: aleth.v1.NextReadyResponse.blocked_reasons:type_name -> aleth.v1.NextReadyResponse.BlockedReasonsEntry
+	10,  // 77: aleth.v1.ReportTaskResultRequest.status:type_name -> aleth.v1.TaskStatus
+	64,  // 78: aleth.v1.ReportTaskResultRequest.failures:type_name -> aleth.v1.FailureRecord
+	63,  // 79: aleth.v1.TaskUpdateResult.updated_task:type_name -> aleth.v1.Task
+	65,  // 80: aleth.v1.TaskUpdateResult.updated_graph:type_name -> aleth.v1.TaskGraph
+	12,  // 81: aleth.v1.TaskUpdateResult.error:type_name -> aleth.v1.Error
+	64,  // 82: aleth.v1.RefineRequest.failures:type_name -> aleth.v1.FailureRecord
+	118, // 83: aleth.v1.CheckpointInfo.created_at:type_name -> google.protobuf.Timestamp
+	12,  // 84: aleth.v1.RewindResult.error:type_name -> aleth.v1.Error
+	12,  // 85: aleth.v1.ForkResult.error:type_name -> aleth.v1.Error
+	1,   // 86: aleth.v1.ScopeCheckResult.failed_layer:type_name -> aleth.v1.ScopeLayer
+	1,   // 87: aleth.v1.ScopeCheckRequest.layer:type_name -> aleth.v1.ScopeLayer
+	85,  // 88: aleth.v1.ReserveResult.state:type_name -> aleth.v1.BudgetState
+	12,  // 89: aleth.v1.ReserveResult.error:type_name -> aleth.v1.Error
+	85,  // 90: aleth.v1.CircuitState.budget:type_name -> aleth.v1.BudgetState
+	118, // 91: aleth.v1.SignedExecId.issued_at:type_name -> google.protobuf.Timestamp
+	117, // 92: aleth.v1.SandboxExecRequest.params:type_name -> aleth.v1.SandboxExecRequest.ParamsEntry
+	15,  // 93: aleth.v1.SandboxExecResult.stdout_ref:type_name -> aleth.v1.RawOutputRef
+	15,  // 94: aleth.v1.SandboxExecResult.stderr_ref:type_name -> aleth.v1.RawOutputRef
+	12,  // 95: aleth.v1.SandboxExecResult.error:type_name -> aleth.v1.Error
+	96,  // 96: aleth.v1.TokenizeResult.mappings:type_name -> aleth.v1.TokenMapping
+	103, // 97: aleth.v1.ScanResult.hits:type_name -> aleth.v1.LeakHit
+	5,   // 98: aleth.v1.Finding.status:type_name -> aleth.v1.FindingStatus
+	47,  // 99: aleth.v1.Finding.reproducibility:type_name -> aleth.v1.ReproSpec
+	46,  // 100: aleth.v1.Finding.side_effects:type_name -> aleth.v1.SideEffectObservation
+	27,  // 101: aleth.v1.Report.scope:type_name -> aleth.v1.ScopeInfo
+	104, // 102: aleth.v1.Report.confirmed:type_name -> aleth.v1.Finding
+	104, // 103: aleth.v1.Report.candidates:type_name -> aleth.v1.Finding
+	105, // 104: aleth.v1.Report.evidence_summary:type_name -> aleth.v1.EvidenceSummary
+	106, // 105: aleth.v1.Report.cost:type_name -> aleth.v1.CostSummary
+	107, // 106: aleth.v1.Report.limitations:type_name -> aleth.v1.Limitation
+	19,  // 107: aleth.v1.IngestService.Execute:input_type -> aleth.v1.ToolRequest
+	20,  // 108: aleth.v1.IngestService.ListAdapters:input_type -> aleth.v1.ListAdaptersRequest
+	22,  // 109: aleth.v1.IngestService.ValidateTool:input_type -> aleth.v1.ValidateToolRequest
+	13,  // 110: aleth.v1.PrismService.Ingest:input_type -> aleth.v1.EvidenceSpectrum
+	31,  // 111: aleth.v1.PrismService.Project:input_type -> aleth.v1.ProjectRequest
+	32,  // 112: aleth.v1.PrismService.SnapshotAt:input_type -> aleth.v1.SnapshotAtRequest
+	33,  // 113: aleth.v1.PrismService.CreateBranch:input_type -> aleth.v1.CreateBranchRequest
+	35,  // 114: aleth.v1.PrismService.RollbackBranch:input_type -> aleth.v1.RollbackBranchRequest
+	37,  // 115: aleth.v1.PrismService.MergeBranch:input_type -> aleth.v1.MergeBranchRequest
+	41,  // 116: aleth.v1.ApertureService.Assemble:input_type -> aleth.v1.AssembleRequest
+	42,  // 117: aleth.v1.ApertureService.Autofocus:input_type -> aleth.v1.AutofocusRequest
+	50,  // 118: aleth.v1.LedgerService.Append:input_type -> aleth.v1.AppendEvidenceRequest
+	52,  // 119: aleth.v1.LedgerService.ValidateAssertion:input_type -> aleth.v1.ValidateAssertionRequest
+	53,  // 120: aleth.v1.LedgerService.RecordSideEffect:input_type -> aleth.v1.RecordSideEffectRequest
+	55,  // 121: aleth.v1.LedgerService.Reproduce:input_type -> aleth.v1.ReproduceRequest
+	57,  // 122: aleth.v1.LedgerService.TraceFinding:input_type -> aleth.v1.TraceFindingRequest
+	59,  // 123: aleth.v1.LedgerService.ReportHallucination:input_type -> aleth.v1.ReportHallucinationRequest
+	61,  // 124: aleth.v1.TerminationService.RequestTermination:input_type -> aleth.v1.TerminationRequest
+	70,  // 125: aleth.v1.OrchestratorService.Plan:input_type -> aleth.v1.PlanRequest
+	71,  // 126: aleth.v1.OrchestratorService.NextReady:input_type -> aleth.v1.NextReadyRequest
+	73,  // 127: aleth.v1.OrchestratorService.ReportTaskResult:input_type -> aleth.v1.ReportTaskResultRequest
+	75,  // 128: aleth.v1.OrchestratorService.Refine:input_type -> aleth.v1.RefineRequest
+	76,  // 129: aleth.v1.OrchestratorService.Checkpoint:input_type -> aleth.v1.CheckpointRequest
+	78,  // 130: aleth.v1.OrchestratorService.Rewind:input_type -> aleth.v1.RewindRequest
+	80,  // 131: aleth.v1.OrchestratorService.Fork:input_type -> aleth.v1.ForkRequest
+	66,  // 132: aleth.v1.OrchestratorService.GetGraph:input_type -> aleth.v1.GetGraphRequest
+	67,  // 133: aleth.v1.OrchestratorService.ListSessions:input_type -> aleth.v1.ListSessionsRequest
+	83,  // 134: aleth.v1.ScopeService.Check:input_type -> aleth.v1.ScopeCheckRequest
+	84,  // 135: aleth.v1.ScopeService.LoadScope:input_type -> aleth.v1.LoadScopeRequest
+	86,  // 136: aleth.v1.GovernorService.Reserve:input_type -> aleth.v1.ReserveRequest
+	88,  // 137: aleth.v1.GovernorService.Consume:input_type -> aleth.v1.ConsumeRequest
+	89,  // 138: aleth.v1.GovernorService.State:input_type -> aleth.v1.BudgetStateRequest
+	90,  // 139: aleth.v1.GovernorService.CheckCircuit:input_type -> aleth.v1.CircuitCheckRequest
+	93,  // 140: aleth.v1.SandboxService.Execute:input_type -> aleth.v1.SandboxExecRequest
+	95,  // 141: aleth.v1.SandboxService.SignExecId:input_type -> aleth.v1.SignExecIdRequest
+	98,  // 142: aleth.v1.GatewayService.Tokenize:input_type -> aleth.v1.TokenizeRequest
+	100, // 143: aleth.v1.GatewayService.Detokenize:input_type -> aleth.v1.DetokenizeRequest
+	102, // 144: aleth.v1.GatewayService.ScanOutbound:input_type -> aleth.v1.ScanRequest
+	13,  // 145: aleth.v1.IngestService.Execute:output_type -> aleth.v1.EvidenceSpectrum
+	21,  // 146: aleth.v1.IngestService.ListAdapters:output_type -> aleth.v1.ListAdaptersResponse
+	23,  // 147: aleth.v1.IngestService.ValidateTool:output_type -> aleth.v1.ValidateToolResponse
+	29,  // 148: aleth.v1.PrismService.Ingest:output_type -> aleth.v1.IngestResult
+	28,  // 149: aleth.v1.PrismService.Project:output_type -> aleth.v1.ProjectedSubgraph
+	28,  // 150: aleth.v1.PrismService.SnapshotAt:output_type -> aleth.v1.ProjectedSubgraph
+	34,  // 151: aleth.v1.PrismService.CreateBranch:output_type -> aleth.v1.BranchInfo
+	36,  // 152: aleth.v1.PrismService.RollbackBranch:output_type -> aleth.v1.RollbackResult
+	38,  // 153: aleth.v1.PrismService.MergeBranch:output_type -> aleth.v1.MergeResult
+	40,  // 154: aleth.v1.ApertureService.Assemble:output_type -> aleth.v1.ContextBundle
+	43,  // 155: aleth.v1.ApertureService.Autofocus:output_type -> aleth.v1.AutofocusResult
+	51,  // 156: aleth.v1.LedgerService.Append:output_type -> aleth.v1.AppendEvidenceResult
+	49,  // 157: aleth.v1.LedgerService.ValidateAssertion:output_type -> aleth.v1.ValidateAssertionResult
+	54,  // 158: aleth.v1.LedgerService.RecordSideEffect:output_type -> aleth.v1.RecordSideEffectResult
+	56,  // 159: aleth.v1.LedgerService.Reproduce:output_type -> aleth.v1.ReproduceResult
+	58,  // 160: aleth.v1.LedgerService.TraceFinding:output_type -> aleth.v1.TracedEvidenceChain
+	60,  // 161: aleth.v1.LedgerService.ReportHallucination:output_type -> aleth.v1.HallucinationState
+	62,  // 162: aleth.v1.TerminationService.RequestTermination:output_type -> aleth.v1.TerminationDecision
+	65,  // 163: aleth.v1.OrchestratorService.Plan:output_type -> aleth.v1.TaskGraph
+	72,  // 164: aleth.v1.OrchestratorService.NextReady:output_type -> aleth.v1.NextReadyResponse
+	74,  // 165: aleth.v1.OrchestratorService.ReportTaskResult:output_type -> aleth.v1.TaskUpdateResult
+	65,  // 166: aleth.v1.OrchestratorService.Refine:output_type -> aleth.v1.TaskGraph
+	77,  // 167: aleth.v1.OrchestratorService.Checkpoint:output_type -> aleth.v1.CheckpointInfo
+	79,  // 168: aleth.v1.OrchestratorService.Rewind:output_type -> aleth.v1.RewindResult
+	81,  // 169: aleth.v1.OrchestratorService.Fork:output_type -> aleth.v1.ForkResult
+	65,  // 170: aleth.v1.OrchestratorService.GetGraph:output_type -> aleth.v1.TaskGraph
+	68,  // 171: aleth.v1.OrchestratorService.ListSessions:output_type -> aleth.v1.ListSessionsResponse
+	82,  // 172: aleth.v1.ScopeService.Check:output_type -> aleth.v1.ScopeCheckResult
+	27,  // 173: aleth.v1.ScopeService.LoadScope:output_type -> aleth.v1.ScopeInfo
+	87,  // 174: aleth.v1.GovernorService.Reserve:output_type -> aleth.v1.ReserveResult
+	85,  // 175: aleth.v1.GovernorService.Consume:output_type -> aleth.v1.BudgetState
+	85,  // 176: aleth.v1.GovernorService.State:output_type -> aleth.v1.BudgetState
+	91,  // 177: aleth.v1.GovernorService.CheckCircuit:output_type -> aleth.v1.CircuitState
+	94,  // 178: aleth.v1.SandboxService.Execute:output_type -> aleth.v1.SandboxExecResult
+	92,  // 179: aleth.v1.SandboxService.SignExecId:output_type -> aleth.v1.SignedExecId
+	97,  // 180: aleth.v1.GatewayService.Tokenize:output_type -> aleth.v1.TokenizeResult
+	99,  // 181: aleth.v1.GatewayService.Detokenize:output_type -> aleth.v1.DetokenizeResult
+	101, // 182: aleth.v1.GatewayService.ScanOutbound:output_type -> aleth.v1.ScanResult
+	145, // [145:183] is the sub-list for method output_type
+	107, // [107:145] is the sub-list for method input_type
+	107, // [107:107] is the sub-list for extension type_name
+	107, // [107:107] is the sub-list for extension extendee
+	0,   // [0:107] is the sub-list for field type_name
 }
 
 func init() { file_aleth_v1_aletheia_proto_init() }
@@ -8601,7 +8958,7 @@ func file_aleth_v1_aletheia_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aleth_v1_aletheia_proto_rawDesc), len(file_aleth_v1_aletheia_proto_rawDesc)),
 			NumEnums:      12,
-			NumMessages:   102,
+			NumMessages:   106,
 			NumExtensions: 0,
 			NumServices:   10,
 		},

@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "价目表**示例**。它不能用于真实核算 —— 加载器会拒绝 source 以 EXAMPLE 开头的表。",
+    "填真实数据时：把 source 换成渠道报价页地址（或账单导出文件名），",
+    "version 换成报价的日期/批次，并按渠道报价单填两张单价（单位：每百万 token）。",
+    "currency 必须是 ISO-4217 代码（CNY / USD ...），两个表比较时币种必须一致。"
+  ],
+  "currency": "CNY",
+  "source": "EXAMPLE-ONLY 这不是真实报价，请勿用于核算",
+  "version": "example-0",
+  "prices": {
+    "glm-5.2": {
+      "prompt_per_mtok": 4.0,
+      "completion_per_mtok": 16.0,
+      "note": "示例数字，非真实报价"
+    },
+    "deepseek-flash": {
+      "prompt_per_mtok": 0.5,
+      "completion_per_mtok": 2.0,
+      "note": "示例数字，非真实报价"
+    },
+    "sensenova-6.8-flash-lite": {
+      "prompt_per_mtok": 0.2,
+      "completion_per_mtok": 0.8,
+      "note": "示例数字，非真实报价"
+    }
+  }
+}

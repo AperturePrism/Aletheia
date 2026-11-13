@@ -109,6 +109,7 @@ class Provider(Protocol):
         max_tokens: int,
         scan: Callable[[str], None] | None = None,
         extras: dict | None = None,
+        task_tier: str | None = None,
     ) -> ChatResult: ...
 
 
@@ -143,6 +144,7 @@ class OpenAICompatProvider:
         max_tokens: int,
         scan: Callable[[str], None] | None = None,
         extras: dict | None = None,
+        task_tier: str | None = None,
     ) -> ChatResult:
         if scan is not None:
             scan(prompt)  # R7：出站前扫描；命中即 scan 内抛错阻断
@@ -206,7 +208,14 @@ class OpenAICompatProvider:
                 LedgerEntry(
                     ts=time.time(),
                     model=model,
-                    task_tier=self.task_tier,
+                    # ★ 档位优先取调用方传入的 `task_tier`（由 Router 按档位给出）。
+                    #
+                    # 修复（2026-11-03）：此前恒用 `self.task_tier`（构造时的
+                    # 默认值 "default"），于是 `Router.chat("planning", ...)`
+                    # 记下的档位仍是 "default" —— **`CostLedger.by_tier()`
+                    # 对 Router 驱动的流量完全失效**（永远只有 default 一项）。
+                    # 而 I12 的"DoD③ 按档位聚合验证"正是依赖它。
+                    task_tier=task_tier or self.task_tier,
                     usage=usage,
                     latency_ms=latency,
                 )
@@ -277,4 +286,11 @@ class Router:
             max_tokens=self.max_tokens_by_tier.get(tier, 2048),
             scan=scan,
             extras=extras,
+            # ★ 把档位传下去（2026-11-03 修复）。
+            #
+            # 不传的话 Provider 只能记自己的默认档位，`by_tier()` 就退化成
+            # 单一 "default" 项 —— 而按档位归因正是 I12 成本分析的核心维度
+            # （"思考档占多少、机械档占多少"）。缺了它，分级路由的成本结论
+            # 无法被账本证实。
+            task_tier=tier,
         )

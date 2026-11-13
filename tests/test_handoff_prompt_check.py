@@ -16,8 +16,29 @@ docs/10 §0 的三种失真里，「相似替代一致」最适用这里：
     4. tag 不存在 → exit 1
     5. HEAD 过期但仍真实 → exit 0 + 输出含 stale（区分 FAIL 与 stale 是关键设计）
 
-本测试会临时修改 docs/HANDOFF-PROMPT.md，因此必须确保 finally 还原 ——
-用一个独立副本而不是原地改，避免任何意外把真文档弄坏。
+本测试会**临时**修改 `docs/HANDOFF-PROMPT.md`（为了测脚本对坏文档的反应），
+因此必须有可靠的还原机制。两条保障，缺一不可：
+
+1. **autouse fixture 按字节快照/还原**（见 `_restore_doc`）——
+   每个用例结束后无条件写回原始字节；
+2. 各用例自己的 `try/finally`（保留，双保险）。
+
+★ 为什么必须按**字节**而不是文本还原（2026-11-03 修复）：
+
+此前用 `DOC.read_text()` + `DOC.write_text(text, encoding="utf-8")` 还原。
+`Path.write_text` 在 Windows 上做**通用换行翻译**（`\n` → `os.linesep` = CRLF），
+而仓库的 `.gitattributes` 要求 `* text=auto eol=lf`。结果：
+
+    $ pytest ...          # 只跑测试，什么都没改
+    $ git status
+     M docs/HANDOFF-PROMPT.md      # 内容没变，行尾从 LF 变成 CRLF
+
+于是**每次跑测试都把被跟踪的文件写脏** —— 与之前 `webdist` 那个
+"跑一次构建就脏一次"是同一类问题：工作区永远不干净，而"干净"是很多
+检查（如 `test_scan_clean_on_untouched_tree`）的前提。
+
+用字节读写可以完全避开换行翻译：备份 `read_bytes()`、还原 `write_bytes()`，
+字节级一致。
 """
 
 from __future__ import annotations
@@ -25,11 +46,37 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "check-handoff-prompt.sh"
 DOC = REPO_ROOT / "docs" / "HANDOFF-PROMPT.md"
+
+
+@pytest.fixture(autouse=True)
+def _restore_doc() -> Iterator[None]:
+    """每个用例前后按**字节**快照/还原真文档。
+
+    为什么是 autouse：本模块有 6 个用例会改这个文件，逐个加 finally
+    容易漏（当前就漏了一个用例的崩溃路径）。autouse 让"还原"与
+    "作者记不记得"解耦。
+
+    为什么是字节：见模块 docstring —— 文本还原在 Windows 上会把 LF 翻成 CRLF，
+    导致每次跑测试就脏一次工作区。
+    """
+    if not DOC.exists():
+        # 有的用例专门测"文档缺失"，此时无原始字节可备份。
+        yield
+        return
+    original = DOC.read_bytes()
+    try:
+        yield
+    finally:
+        # 无条件还原：即便用例断言失败或抛异常。
+        DOC.write_bytes(original)
 
 
 def _run() -> subprocess.CompletedProcess[str]:

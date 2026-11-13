@@ -1,0 +1,58 @@
+# Juice Shop 对照靶场（已知漏洞）
+#
+# 用途：`04` §P2 门禁的「公开基准可复现分数」与 Q5 抓包验证的对照环境。
+# 真源：`docs/04` §P2 ｜ `docs/07` §T5.1/T6/T8 ｜ `docs/modules/M9` §8
+#
+# # 三条硬约束（见 labs/README.md §3，逐条在此落实）
+#
+# 1. **镜像按 digest 固定**（07 §T6）：用 `image: repo@sha256:...`，
+#    不用可变 tag。tag 只是人读的注释，**真正生效的是 digest**。
+#    取得方式：`docker pull <tag> && docker inspect --format='{{index .RepoDigests 0}}' <tag>`
+#
+# 2. **仅回环可达**（07 §T5.1 / Q13）：端口绑定写 `127.0.0.1:3000:3000`，
+#    **绝不**写 `3000:3000`（那会绑 0.0.0.0，暴露到局域网）。
+#
+# 3. **容器内无宿主凭据**（07 §T3）：不挂 docker.sock、不挂 ~/.ssh、
+#    不传任何 API key。本文件因此**没有** `volumes:` 与敏感 `environment:`。
+#
+# # 关于出站网络（07 §T8）
+#
+# 靶场**不需要**访问互联网。实测本机 WSL2 内的 docker 桥接对容器出站是
+# 阻断的（见 labs/README.md 的实测记录）—— 这恰好符合 T8 的意图，但它
+# 是环境的**偶然属性**，不是本编排强制的。若换到出站通畅的机器，
+# 应加 `internal: true` 网络或出站代理来强制。
+#
+# # 状态重置（M9 §8）
+#
+# Juice Shop 把数据写在容器内（无 volume），因此 `docker compose down -v`
+# 即完全重置。`scripts/labs-down.sh` 强制带 `-v`。
+
+name: aleth-lab-juice-shop
+
+services:
+  juice-shop:
+    # ★ digest 固定。tag 同时保留以便人读 —— 但请以下面的 sha256 为准。
+    # juice-shop v17.1.1  @sha256:9e437b456e444ff001d1663e4f6f05c796fe02f1058dd2651d6791a15b43dfeb
+    image: bkimminich/juice-shop@sha256:9e437b456e444ff001d1663e4f6f05c796fe02f1058dd2651d6791a15b43dfeb
+    container_name: aleth-lab-juice-shop
+    # ★ 仅回环。左侧 127.0.0.1 是**宿主**侧绑定地址，不可省。
+    ports:
+      - "127.0.0.1:3000:3000"
+    # 资源上限：靶场不应挤占系统（也避免一个跑飞的扫描把宿主拖死）。
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1g
+    # ★ 刻意**不写 healthcheck**。
+    #
+    # 该镜像是 distroless 风格：容器内**没有 `sh`，也没有 `node`/`wget`/`curl`**
+    # 在 PATH 里（实测：`docker exec … sh` → "executable file not found"）。
+    # 因此任何 `CMD`/`CMD-SHELL` 形式的健康检查都必然失败，容器会永远
+    # 显示 unhealthy —— 而服务其实是好的（宿主侧 curl 返回 200）。
+    #
+    # 那种"假警报"比没有健康检查更糟：它会让人以为靶场没起来。
+    #
+    # 就绪判定改由 `scripts/labs-up.sh` 在**宿主侧**做 TCP/HTTP 探测 ——
+    # 那也正是我们真正关心的语义："从扫描器所在的位置能不能连上"。
+    restart: "no"

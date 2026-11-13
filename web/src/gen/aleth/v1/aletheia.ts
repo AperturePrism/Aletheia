@@ -1411,7 +1411,18 @@ export interface AssembleRequest {
     | ApertureSetting_Stop
     | undefined;
   /** 超预算时是否允许自动降档重试 */
-  allowDowngrade?: boolean | undefined;
+  allowDowngrade?:
+    | boolean
+    | undefined;
+  /**
+   * [contract:2026-11-02] 连续调节的覆盖参数（三档之间的表达）。
+   * 语义：0 = 不覆盖（沿用档位参数）。服务端必须校验组合后的物理语义
+   * （曝光上限 200，禁止"又宽又深"），违反则拒绝，不得静默截断。
+   * 兼容性：纯增量字段；旧客户端不发送（=0）时行为与此前完全一致。
+   */
+  maxHops?: number | undefined;
+  maxEntities?: number | undefined;
+  depthPerEntity?: number | undefined;
 }
 
 /** [derived] 05 §4.2 引用。 */
@@ -1747,6 +1758,57 @@ export interface TaskGraph {
     | undefined;
   /** LLM 给出的规划理由（可审计） */
   planRationale?: string | undefined;
+}
+
+/** [contract:2026-11-02] */
+export interface GetGraphRequest {
+  sessionId?:
+    | string
+    | undefined;
+  /** 留空 = 该会话的当前计划 */
+  graphId?: string | undefined;
+}
+
+/** [contract:2026-11-02] */
+export interface ListSessionsRequest {
+  /** 0 = 服务端默认值（不得返回"全部"，会话数无上界） */
+  limit?:
+    | number
+    | undefined;
+  /** 空串 = 从头开始 */
+  cursor?: string | undefined;
+}
+
+/** [contract:2026-11-02] */
+export interface ListSessionsResponse {
+  sessions?:
+    | SessionSummary[]
+    | undefined;
+  /** 空串 = 没有更多 */
+  nextCursor?: string | undefined;
+}
+
+/**
+ * SessionSummary —— 会话总览一行的全部字段。
+ * 刻意不含任何真实敏感值（只放计数与状态），与 07 §T8 一致：
+ * 列表是高频读取路径，不应成为泄漏面。
+ * [contract:2026-11-02]
+ */
+export interface SessionSummary {
+  sessionId?: string | undefined;
+  status?:
+    | string
+    | undefined;
+  /** RFC 3339 */
+  createdAt?: string | undefined;
+  taskTotal?: number | undefined;
+  taskDone?: number | undefined;
+  taskFailed?: number | undefined;
+  budgetTotalTokens?: number | undefined;
+  budgetConsumedTokens?: number | undefined;
+  budgetCircuitOpen?: boolean | undefined;
+  findingsCandidate?: number | undefined;
+  findingsConfirmed?: number | undefined;
 }
 
 /** [derived] 05 §6.2 引用。 */
@@ -7079,7 +7141,17 @@ export const ContextBundle: MessageFns<ContextBundle> = {
 };
 
 function createBaseAssembleRequest(): AssembleRequest {
-  return { taskId: "", sessionId: "", focusHint: "", budgetTokens: 0, preferredStop: 0, allowDowngrade: false };
+  return {
+    taskId: "",
+    sessionId: "",
+    focusHint: "",
+    budgetTokens: 0,
+    preferredStop: 0,
+    allowDowngrade: false,
+    maxHops: 0,
+    maxEntities: 0,
+    depthPerEntity: 0,
+  };
 }
 
 export const AssembleRequest: MessageFns<AssembleRequest> = {
@@ -7101,6 +7173,15 @@ export const AssembleRequest: MessageFns<AssembleRequest> = {
     }
     if (message.allowDowngrade !== undefined && message.allowDowngrade !== false) {
       writer.uint32(48).bool(message.allowDowngrade);
+    }
+    if (message.maxHops !== undefined && message.maxHops !== 0) {
+      writer.uint32(56).uint32(message.maxHops);
+    }
+    if (message.maxEntities !== undefined && message.maxEntities !== 0) {
+      writer.uint32(64).uint32(message.maxEntities);
+    }
+    if (message.depthPerEntity !== undefined && message.depthPerEntity !== 0) {
+      writer.uint32(72).uint32(message.depthPerEntity);
     }
     return writer;
   },
@@ -7166,6 +7247,30 @@ export const AssembleRequest: MessageFns<AssembleRequest> = {
             message.allowDowngrade = reader.bool();
             continue;
           }
+          case 7: {
+            if (tag !== 56) {
+              break;
+            }
+
+            message.maxHops = reader.uint32();
+            continue;
+          }
+          case 8: {
+            if (tag !== 64) {
+              break;
+            }
+
+            message.maxEntities = reader.uint32();
+            continue;
+          }
+          case 9: {
+            if (tag !== 72) {
+              break;
+            }
+
+            message.depthPerEntity = reader.uint32();
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -7210,6 +7315,21 @@ export const AssembleRequest: MessageFns<AssembleRequest> = {
         : isSet(object.allow_downgrade)
         ? globalThis.Boolean(object.allow_downgrade)
         : false,
+      maxHops: isSet(object.maxHops)
+        ? globalThis.Number(object.maxHops)
+        : isSet(object.max_hops)
+        ? globalThis.Number(object.max_hops)
+        : 0,
+      maxEntities: isSet(object.maxEntities)
+        ? globalThis.Number(object.maxEntities)
+        : isSet(object.max_entities)
+        ? globalThis.Number(object.max_entities)
+        : 0,
+      depthPerEntity: isSet(object.depthPerEntity)
+        ? globalThis.Number(object.depthPerEntity)
+        : isSet(object.depth_per_entity)
+        ? globalThis.Number(object.depth_per_entity)
+        : 0,
     };
   },
 
@@ -7233,6 +7353,15 @@ export const AssembleRequest: MessageFns<AssembleRequest> = {
     if (message.allowDowngrade !== undefined && message.allowDowngrade !== false) {
       obj.allowDowngrade = message.allowDowngrade;
     }
+    if (message.maxHops !== undefined && message.maxHops !== 0) {
+      obj.maxHops = Math.round(message.maxHops);
+    }
+    if (message.maxEntities !== undefined && message.maxEntities !== 0) {
+      obj.maxEntities = Math.round(message.maxEntities);
+    }
+    if (message.depthPerEntity !== undefined && message.depthPerEntity !== 0) {
+      obj.depthPerEntity = Math.round(message.depthPerEntity);
+    }
     return obj;
   },
 
@@ -7247,6 +7376,9 @@ export const AssembleRequest: MessageFns<AssembleRequest> = {
     message.budgetTokens = object.budgetTokens ?? 0;
     message.preferredStop = object.preferredStop ?? 0;
     message.allowDowngrade = object.allowDowngrade ?? false;
+    message.maxHops = object.maxHops ?? 0;
+    message.maxEntities = object.maxEntities ?? 0;
+    message.depthPerEntity = object.depthPerEntity ?? 0;
     return message;
   },
 };
@@ -10696,6 +10828,561 @@ export const TaskGraph: MessageFns<TaskGraph> = {
     message.tasks = object.tasks?.map((e) => Task.fromPartial(e)) || [];
     message.planRevision = object.planRevision ?? "";
     message.planRationale = object.planRationale ?? "";
+    return message;
+  },
+};
+
+function createBaseGetGraphRequest(): GetGraphRequest {
+  return { sessionId: "", graphId: "" };
+}
+
+export const GetGraphRequest: MessageFns<GetGraphRequest> = {
+  encode(message: GetGraphRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.sessionId !== undefined && message.sessionId !== "") {
+      writer.uint32(10).string(message.sessionId);
+    }
+    if (message.graphId !== undefined && message.graphId !== "") {
+      writer.uint32(18).string(message.graphId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetGraphRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseGetGraphRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.sessionId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.graphId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): GetGraphRequest {
+    return {
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+      graphId: isSet(object.graphId)
+        ? globalThis.String(object.graphId)
+        : isSet(object.graph_id)
+        ? globalThis.String(object.graph_id)
+        : "",
+    };
+  },
+
+  toJSON(message: GetGraphRequest): unknown {
+    const obj: any = {};
+    if (message.sessionId !== undefined && message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    if (message.graphId !== undefined && message.graphId !== "") {
+      obj.graphId = message.graphId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<GetGraphRequest>, I>>(base?: I): GetGraphRequest {
+    return GetGraphRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetGraphRequest>, I>>(object: I): GetGraphRequest {
+    const message = createBaseGetGraphRequest();
+    message.sessionId = object.sessionId ?? "";
+    message.graphId = object.graphId ?? "";
+    return message;
+  },
+};
+
+function createBaseListSessionsRequest(): ListSessionsRequest {
+  return { limit: 0, cursor: "" };
+}
+
+export const ListSessionsRequest: MessageFns<ListSessionsRequest> = {
+  encode(message: ListSessionsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.limit !== undefined && message.limit !== 0) {
+      writer.uint32(8).uint32(message.limit);
+    }
+    if (message.cursor !== undefined && message.cursor !== "") {
+      writer.uint32(18).string(message.cursor);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListSessionsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseListSessionsRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 8) {
+              break;
+            }
+
+            message.limit = reader.uint32();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.cursor = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ListSessionsRequest {
+    return {
+      limit: isSet(object.limit) ? globalThis.Number(object.limit) : 0,
+      cursor: isSet(object.cursor) ? globalThis.String(object.cursor) : "",
+    };
+  },
+
+  toJSON(message: ListSessionsRequest): unknown {
+    const obj: any = {};
+    if (message.limit !== undefined && message.limit !== 0) {
+      obj.limit = Math.round(message.limit);
+    }
+    if (message.cursor !== undefined && message.cursor !== "") {
+      obj.cursor = message.cursor;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListSessionsRequest>, I>>(base?: I): ListSessionsRequest {
+    return ListSessionsRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListSessionsRequest>, I>>(object: I): ListSessionsRequest {
+    const message = createBaseListSessionsRequest();
+    message.limit = object.limit ?? 0;
+    message.cursor = object.cursor ?? "";
+    return message;
+  },
+};
+
+function createBaseListSessionsResponse(): ListSessionsResponse {
+  return { sessions: [], nextCursor: "" };
+}
+
+export const ListSessionsResponse: MessageFns<ListSessionsResponse> = {
+  encode(message: ListSessionsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.sessions !== undefined && message.sessions.length !== 0) {
+      for (const v of message.sessions) {
+        SessionSummary.encode(v!, writer.uint32(10).fork()).join();
+      }
+    }
+    if (message.nextCursor !== undefined && message.nextCursor !== "") {
+      writer.uint32(18).string(message.nextCursor);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListSessionsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseListSessionsResponse();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            const el = SessionSummary.decode(reader, reader.uint32());
+            if (el !== undefined) {
+              message.sessions!.push(el);
+            }
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.nextCursor = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ListSessionsResponse {
+    return {
+      sessions: globalThis.Array.isArray(object?.sessions)
+        ? object.sessions.map((e: any) => SessionSummary.fromJSON(e))
+        : [],
+      nextCursor: isSet(object.nextCursor)
+        ? globalThis.String(object.nextCursor)
+        : isSet(object.next_cursor)
+        ? globalThis.String(object.next_cursor)
+        : "",
+    };
+  },
+
+  toJSON(message: ListSessionsResponse): unknown {
+    const obj: any = {};
+    if (message.sessions?.length) {
+      obj.sessions = message.sessions.map((e) => SessionSummary.toJSON(e));
+    }
+    if (message.nextCursor !== undefined && message.nextCursor !== "") {
+      obj.nextCursor = message.nextCursor;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListSessionsResponse>, I>>(base?: I): ListSessionsResponse {
+    return ListSessionsResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListSessionsResponse>, I>>(object: I): ListSessionsResponse {
+    const message = createBaseListSessionsResponse();
+    message.sessions = object.sessions?.map((e) => SessionSummary.fromPartial(e)) || [];
+    message.nextCursor = object.nextCursor ?? "";
+    return message;
+  },
+};
+
+function createBaseSessionSummary(): SessionSummary {
+  return {
+    sessionId: "",
+    status: "",
+    createdAt: "",
+    taskTotal: 0,
+    taskDone: 0,
+    taskFailed: 0,
+    budgetTotalTokens: 0,
+    budgetConsumedTokens: 0,
+    budgetCircuitOpen: false,
+    findingsCandidate: 0,
+    findingsConfirmed: 0,
+  };
+}
+
+export const SessionSummary: MessageFns<SessionSummary> = {
+  encode(message: SessionSummary, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.sessionId !== undefined && message.sessionId !== "") {
+      writer.uint32(10).string(message.sessionId);
+    }
+    if (message.status !== undefined && message.status !== "") {
+      writer.uint32(18).string(message.status);
+    }
+    if (message.createdAt !== undefined && message.createdAt !== "") {
+      writer.uint32(26).string(message.createdAt);
+    }
+    if (message.taskTotal !== undefined && message.taskTotal !== 0) {
+      writer.uint32(32).uint32(message.taskTotal);
+    }
+    if (message.taskDone !== undefined && message.taskDone !== 0) {
+      writer.uint32(40).uint32(message.taskDone);
+    }
+    if (message.taskFailed !== undefined && message.taskFailed !== 0) {
+      writer.uint32(48).uint32(message.taskFailed);
+    }
+    if (message.budgetTotalTokens !== undefined && message.budgetTotalTokens !== 0) {
+      writer.uint32(56).uint32(message.budgetTotalTokens);
+    }
+    if (message.budgetConsumedTokens !== undefined && message.budgetConsumedTokens !== 0) {
+      writer.uint32(64).uint32(message.budgetConsumedTokens);
+    }
+    if (message.budgetCircuitOpen !== undefined && message.budgetCircuitOpen !== false) {
+      writer.uint32(72).bool(message.budgetCircuitOpen);
+    }
+    if (message.findingsCandidate !== undefined && message.findingsCandidate !== 0) {
+      writer.uint32(80).uint32(message.findingsCandidate);
+    }
+    if (message.findingsConfirmed !== undefined && message.findingsConfirmed !== 0) {
+      writer.uint32(88).uint32(message.findingsConfirmed);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SessionSummary {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseSessionSummary();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.sessionId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.status = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.createdAt = reader.string();
+            continue;
+          }
+          case 4: {
+            if (tag !== 32) {
+              break;
+            }
+
+            message.taskTotal = reader.uint32();
+            continue;
+          }
+          case 5: {
+            if (tag !== 40) {
+              break;
+            }
+
+            message.taskDone = reader.uint32();
+            continue;
+          }
+          case 6: {
+            if (tag !== 48) {
+              break;
+            }
+
+            message.taskFailed = reader.uint32();
+            continue;
+          }
+          case 7: {
+            if (tag !== 56) {
+              break;
+            }
+
+            message.budgetTotalTokens = reader.uint32();
+            continue;
+          }
+          case 8: {
+            if (tag !== 64) {
+              break;
+            }
+
+            message.budgetConsumedTokens = reader.uint32();
+            continue;
+          }
+          case 9: {
+            if (tag !== 72) {
+              break;
+            }
+
+            message.budgetCircuitOpen = reader.bool();
+            continue;
+          }
+          case 10: {
+            if (tag !== 80) {
+              break;
+            }
+
+            message.findingsCandidate = reader.uint32();
+            continue;
+          }
+          case 11: {
+            if (tag !== 88) {
+              break;
+            }
+
+            message.findingsConfirmed = reader.uint32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): SessionSummary {
+    return {
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+      createdAt: isSet(object.createdAt)
+        ? globalThis.String(object.createdAt)
+        : isSet(object.created_at)
+        ? globalThis.String(object.created_at)
+        : "",
+      taskTotal: isSet(object.taskTotal)
+        ? globalThis.Number(object.taskTotal)
+        : isSet(object.task_total)
+        ? globalThis.Number(object.task_total)
+        : 0,
+      taskDone: isSet(object.taskDone)
+        ? globalThis.Number(object.taskDone)
+        : isSet(object.task_done)
+        ? globalThis.Number(object.task_done)
+        : 0,
+      taskFailed: isSet(object.taskFailed)
+        ? globalThis.Number(object.taskFailed)
+        : isSet(object.task_failed)
+        ? globalThis.Number(object.task_failed)
+        : 0,
+      budgetTotalTokens: isSet(object.budgetTotalTokens)
+        ? globalThis.Number(object.budgetTotalTokens)
+        : isSet(object.budget_total_tokens)
+        ? globalThis.Number(object.budget_total_tokens)
+        : 0,
+      budgetConsumedTokens: isSet(object.budgetConsumedTokens)
+        ? globalThis.Number(object.budgetConsumedTokens)
+        : isSet(object.budget_consumed_tokens)
+        ? globalThis.Number(object.budget_consumed_tokens)
+        : 0,
+      budgetCircuitOpen: isSet(object.budgetCircuitOpen)
+        ? globalThis.Boolean(object.budgetCircuitOpen)
+        : isSet(object.budget_circuit_open)
+        ? globalThis.Boolean(object.budget_circuit_open)
+        : false,
+      findingsCandidate: isSet(object.findingsCandidate)
+        ? globalThis.Number(object.findingsCandidate)
+        : isSet(object.findings_candidate)
+        ? globalThis.Number(object.findings_candidate)
+        : 0,
+      findingsConfirmed: isSet(object.findingsConfirmed)
+        ? globalThis.Number(object.findingsConfirmed)
+        : isSet(object.findings_confirmed)
+        ? globalThis.Number(object.findings_confirmed)
+        : 0,
+    };
+  },
+
+  toJSON(message: SessionSummary): unknown {
+    const obj: any = {};
+    if (message.sessionId !== undefined && message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    if (message.status !== undefined && message.status !== "") {
+      obj.status = message.status;
+    }
+    if (message.createdAt !== undefined && message.createdAt !== "") {
+      obj.createdAt = message.createdAt;
+    }
+    if (message.taskTotal !== undefined && message.taskTotal !== 0) {
+      obj.taskTotal = Math.round(message.taskTotal);
+    }
+    if (message.taskDone !== undefined && message.taskDone !== 0) {
+      obj.taskDone = Math.round(message.taskDone);
+    }
+    if (message.taskFailed !== undefined && message.taskFailed !== 0) {
+      obj.taskFailed = Math.round(message.taskFailed);
+    }
+    if (message.budgetTotalTokens !== undefined && message.budgetTotalTokens !== 0) {
+      obj.budgetTotalTokens = Math.round(message.budgetTotalTokens);
+    }
+    if (message.budgetConsumedTokens !== undefined && message.budgetConsumedTokens !== 0) {
+      obj.budgetConsumedTokens = Math.round(message.budgetConsumedTokens);
+    }
+    if (message.budgetCircuitOpen !== undefined && message.budgetCircuitOpen !== false) {
+      obj.budgetCircuitOpen = message.budgetCircuitOpen;
+    }
+    if (message.findingsCandidate !== undefined && message.findingsCandidate !== 0) {
+      obj.findingsCandidate = Math.round(message.findingsCandidate);
+    }
+    if (message.findingsConfirmed !== undefined && message.findingsConfirmed !== 0) {
+      obj.findingsConfirmed = Math.round(message.findingsConfirmed);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SessionSummary>, I>>(base?: I): SessionSummary {
+    return SessionSummary.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SessionSummary>, I>>(object: I): SessionSummary {
+    const message = createBaseSessionSummary();
+    message.sessionId = object.sessionId ?? "";
+    message.status = object.status ?? "";
+    message.createdAt = object.createdAt ?? "";
+    message.taskTotal = object.taskTotal ?? 0;
+    message.taskDone = object.taskDone ?? 0;
+    message.taskFailed = object.taskFailed ?? 0;
+    message.budgetTotalTokens = object.budgetTotalTokens ?? 0;
+    message.budgetConsumedTokens = object.budgetConsumedTokens ?? 0;
+    message.budgetCircuitOpen = object.budgetCircuitOpen ?? false;
+    message.findingsCandidate = object.findingsCandidate ?? 0;
+    message.findingsConfirmed = object.findingsConfirmed ?? 0;
     return message;
   },
 };
@@ -15898,6 +16585,21 @@ export interface OrchestratorServiceImplementation<CallContextExt = {}> {
   checkpoint(request: CheckpointRequest, context: CallContext & CallContextExt): Promise<DeepPartial<CheckpointInfo>>;
   rewind(request: RewindRequest, context: CallContext & CallContextExt): Promise<DeepPartial<RewindResult>>;
   fork(request: ForkRequest, context: CallContext & CallContextExt): Promise<DeepPartial<ForkResult>>;
+  /**
+   * [contract:2026-11-02] 只读：读取任务图。
+   * 背景：决策队列（06 页面 7）需渲染四要素卡片，而契约此前只有"写"，
+   * 无法读取整图。只读、幂等、无副作用。
+   */
+  getGraph(request: GetGraphRequest, context: CallContext & CallContextExt): Promise<DeepPartial<TaskGraph>>;
+  /**
+   * [contract:2026-11-02] 只读：列出会话。
+   * 背景：会话总览（06 页面 1）需会话列表；此前全契约唯一带 List 语义的
+   * 方法是 ListAdapters，无法枚举会话。只读、幂等。
+   */
+  listSessions(
+    request: ListSessionsRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<ListSessionsResponse>>;
 }
 
 export interface OrchestratorServiceClient<CallOptionsExt = {}> {
@@ -15913,6 +16615,21 @@ export interface OrchestratorServiceClient<CallOptionsExt = {}> {
   checkpoint(request: DeepPartial<CheckpointRequest>, options?: CallOptions & CallOptionsExt): Promise<CheckpointInfo>;
   rewind(request: DeepPartial<RewindRequest>, options?: CallOptions & CallOptionsExt): Promise<RewindResult>;
   fork(request: DeepPartial<ForkRequest>, options?: CallOptions & CallOptionsExt): Promise<ForkResult>;
+  /**
+   * [contract:2026-11-02] 只读：读取任务图。
+   * 背景：决策队列（06 页面 7）需渲染四要素卡片，而契约此前只有"写"，
+   * 无法读取整图。只读、幂等、无副作用。
+   */
+  getGraph(request: DeepPartial<GetGraphRequest>, options?: CallOptions & CallOptionsExt): Promise<TaskGraph>;
+  /**
+   * [contract:2026-11-02] 只读：列出会话。
+   * 背景：会话总览（06 页面 1）需会话列表；此前全契约唯一带 List 语义的
+   * 方法是 ListAdapters，无法枚举会话。只读、幂等。
+   */
+  listSessions(
+    request: DeepPartial<ListSessionsRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<ListSessionsResponse>;
 }
 
 export interface ScopeServiceImplementation<CallContextExt = {}> {

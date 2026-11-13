@@ -101,6 +101,24 @@ func (a *Assembler) Assemble(ctx context.Context, req *alethv1.AssembleRequest) 
 		stop = DefaultStop
 	}
 
+	// [contract:2026-11-02] 从请求里读连续调节的覆盖参数。
+	//
+	// 此前 `Assemble` 忽略了这些字段（当时契约里根本没有它们），
+	// 连续调节只能走进程内 API —— 于是 gRPC 调用方与 MCP 的
+	// `assemble_context` 只能三档。现在契约补齐了字段，这里接上。
+	//
+	// ★ 覆盖非零时走 `AssembleWithOverrides`，它在进入装配循环**之前**
+	// 就校验组合语义（`ov.Apply` → `validateApertureSemantics`），
+	// 非法组合直接拒绝。这保持了"违反物理语义不静默接受"的既有约定。
+	ov := Overrides{
+		MaxHops:        req.GetMaxHops(),
+		MaxEntities:    req.GetMaxEntities(),
+		DepthPerEntity: req.GetDepthPerEntity(),
+	}
+	if !ov.IsZero() {
+		return a.AssembleWithOverrides(ctx, req, ov)
+	}
+
 	return a.assembleLoop(ctx, req, stop, Overrides{})
 }
 

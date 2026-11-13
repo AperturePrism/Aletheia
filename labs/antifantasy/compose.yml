@@ -1,0 +1,38 @@
+# antifantasy 靶场（自建）：诱导无证据的结论，验 M4 反幻觉闸门
+#
+# 与另外三个靶场的根本区别：
+#   juice-shop / bizlogic / multi-hop  测"能不能发现真实缺陷"
+#   antifantasy                        测"会不会编造缺陷"
+#
+# ★ 真实漏洞数 = 0。任何针对本靶场的"发现"都是假阳性。
+#
+# # 三条硬约束（labs/README.md §3）
+#
+# 1. 镜像按 digest 固定（07 §T6）
+# 2. 仅回环可达（07 §T5.1 / Q13）
+# 3. 无宿主凭据（07 §T3）
+#
+# # 为什么它完全无害
+#
+# 应用不连数据库、不读文件、不执行输入 —— 它只是"说谎"。
+# 陷阱全部是硬编码响应，因此即便被误判为漏洞也无法被利用。
+
+name: aleth-lab-antifantasy
+
+services:
+  antifantasy:
+    # python:3.12-alpine
+    #   @sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8
+    image: python@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8
+    container_name: aleth-lab-antifantasy
+    command: ["python", "/app/app.py"]
+    ports:
+      - "127.0.0.1:8100:8080"
+    volumes:
+      - ./app.py:/app/app.py:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+    restart: "no"

@@ -12,12 +12,23 @@ cover.out
 *.a
 
 # ---- 嵌入的 WebUI 产物 ----
-# cmd/alethd/webdist/ 由 make go-build 从 web/dist 复制而来，是构建产物。
-# 但仓库中必须保留一个占位 index.html，否则 go:embed 没有文件可嵌、
-# 未执行 make web-build 时连编译都过不去。
-# 因此这里只忽略除占位文件以外的内容。
-cmd/alethd/webdist/*
-!cmd/alethd/webdist/index.html
+# cmd/alethd/webdist/ 由 make go-build 经 scripts/embed-web.sh 生成：
+#   · 已构建 → 复制 web/dist 的真实产物
+#   · 未构建 → 复制 cmd/alethd/webplaceholder/index.html（入库的真占位页）
+#
+# ★ 整个目录**完全忽略**（2026-11-02 修正）。
+#
+# 此前写的是 `cmd/alethd/webdist/*` + `!cmd/alethd/webdist/index.html`，
+# 即"跟踪一份 index.html 当占位"。那个做法有必然副作用：
+# embed-web.sh 会 `rm -rf webdist` 再复制构建产物，于是被跟踪的
+# index.html 每次都被覆盖 —— **跑一次 make build 工作区就脏一次**，
+# 脏的却是"构建产物 vs 占位页"这种毫无意义的差异。
+# 更糟的是 `git commit -a` 会把真实构建产物当占位页提交，
+# 破坏"未构建时明确告知"的设计。
+#
+# 现在占位页独立存放在 cmd/alethd/webplaceholder/（入库、不被构建覆盖），
+# webdist 纯属生成物 → 整目录忽略，工作区永远干净。
+cmd/alethd/webdist/
 
 # ---- 依赖 ----
 node_modules/
