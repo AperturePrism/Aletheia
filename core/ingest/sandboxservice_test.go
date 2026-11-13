@@ -45,6 +45,26 @@ func TestExecSignerLoadFailClosed(t *testing.T) {
 	}
 }
 
+func TestExecSignerSeedFormMatchesPythonEcosystem(t *testing.T) {
+	// 32 字节 seed 形态（Python cryptography private_bytes_raw 的输出，
+	// NAS probe_key.hex 即此形态）必须能加载且与同对 64 字节形态等价。
+	signer, err := GenerateExecSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := signer.priv.Seed()
+	fromSeed, err := LoadExecSignerFromHex(hex.EncodeToString(seed))
+	if err != nil {
+		t.Fatalf("seed form must load: %v", err)
+	}
+	if fromSeed.PublicKeyHex() != signer.PublicKeyHex() {
+		t.Fatal("seed-derived signer must have the same public key")
+	}
+	if !fromSeed.Verify("exec_x", signer.sign("exec_x")) {
+		t.Fatal("signatures must be interchangeable between forms")
+	}
+}
+
 func TestExecSignerLoadFromFileSameKey(t *testing.T) {
 	signer, err := GenerateExecSigner()
 	if err != nil {
