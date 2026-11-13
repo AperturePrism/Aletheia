@@ -41,18 +41,26 @@ type ExecSigner struct {
 	priv ed25519.PrivateKey
 }
 
-// LoadExecSignerFromHex 从 hex 编码的原始私钥加载（32 字节）。
+// LoadExecSignerFromHex 从 hex 编码的私钥加载。兼容两种形态：
+//   - 32 字节 seed（Python cryptography 的 private_bytes_raw /
+//     from_private_bytes 形态 —— focalplane 与 stability probe 的
+//     密钥文件都是这个形态，两侧必须能共享同一文件）；
+//   - 64 字节完整私钥（Go ed25519.PrivateKey 的序列化形态）。
 func LoadExecSignerFromHex(hexKey string) (*ExecSigner, error) {
 	raw, err := hex.DecodeString(strings.TrimSpace(hexKey))
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: exec key hex: %w", err)
 	}
-	if len(raw) != ed25519.PrivateKeySize {
+	switch len(raw) {
+	case ed25519.SeedSize:
+		return &ExecSigner{priv: ed25519.NewKeyFromSeed(raw)}, nil
+	case ed25519.PrivateKeySize:
+		return &ExecSigner{priv: ed25519.PrivateKey(raw)}, nil
+	default:
 		return nil, fmt.Errorf(
-			"sandbox: exec key must be %d bytes (raw ed25519), got %d",
-			ed25519.PrivateKeySize, len(raw))
+			"sandbox: exec key must be %d bytes (seed) or %d bytes (full ed25519), got %d",
+			ed25519.SeedSize, ed25519.PrivateKeySize, len(raw))
 	}
-	return &ExecSigner{priv: ed25519.PrivateKey(raw)}, nil
 }
 
 // LoadExecSignerFromFile 读取仅含 hex 私钥的文件。
